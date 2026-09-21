@@ -28,11 +28,16 @@ export interface DerivedTimeline {
   total: number;
 }
 
-export function sceneDuration(scene: Scene, natural: number | undefined): { duration: number; estimated: boolean } {
+export function sceneDuration(
+  scene: Scene,
+  natural: number | undefined,
+  /** Whether some media (own produce or named audio asset) is expected to supply a length. */
+  expectsMedia = scene.produces.video !== undefined || scene.produces.audio !== undefined || scene.audio !== undefined,
+): { duration: number; estimated: boolean } {
   const planned = scene.duration;
   if (natural === undefined) {
     // Nothing with a duration exists yet (or the scene is image-only); the plan is the only source.
-    return { duration: planned!, estimated: scene.produces.video !== undefined || scene.produces.audio !== undefined };
+    return { duration: planned!, estimated: expectsMedia };
   }
   switch (scene.durationPolicy) {
     case "auto":
@@ -53,7 +58,10 @@ export function deriveTimeline(loaded: LoadedFilm, state: ProjectState, errors: 
     const entry = byId.get(id);
     if (!entry) return; // reported by loadFilm
     const { scene, index } = entry;
-    const natural = state.nodes.get(id)?.naturalDuration;
+    // The scene's own media, plus the narration an asset node carries for it.
+    const ownNatural = state.nodes.get(id)?.naturalDuration;
+    const namedNatural = scene.audio ? state.nodes.get(scene.audio)?.naturalDuration : undefined;
+    const natural = ownNatural === undefined ? namedNatural : namedNatural === undefined ? ownNatural : Math.max(ownNatural, namedNatural);
     const { duration, estimated } = sceneDuration(scene, natural);
     const transition: Transition = pos === 0 ? { type: "cut" } : scene.transition ?? film.timeline.transition.default;
     const t = transition.type === "crossfade" ? transition.duration! : 0;

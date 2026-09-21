@@ -39,6 +39,7 @@ bun run check                   # tsc + skill/CLI 一致性 + 源码目录未被
 bash scripts/e2e-remotion.sh      # 用真实 Remotion CLI 跑完整链路（联网装包）
 bash scripts/e2e-hyperframes.sh   # 用真实 HyperFrames CLI 跑完整链路（联网装包）
 bash scripts/e2e-imagine-text.sh --build   # 文字卡：现搭支持 resvg 的 imagine 并跑完整链路
+bash scripts/e2e-hyperframes.sh --narration  # 旁白链：真 TTS → 转录 → 字幕 → 成片（需本地模型）
 ```
 
 ## 文档

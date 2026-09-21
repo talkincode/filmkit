@@ -119,35 +119,23 @@ function applyDefaults(raw: Record<string, unknown>): Film {
   return f;
 }
 
+/**
+ * Fill in a track's documented defaults.
+ *
+ * The raw track is spread last on purpose: this function must never rebuild a
+ * track field by field, because every field it forgets would silently vanish
+ * (`source` on a subtitles track, `cues` on an audio track — both were real
+ * bugs). Defaults fill gaps; whatever the film wrote wins.
+ */
 function trackDefaults(raw: Track): Track {
-  // `raw` comes straight from YAML, so every defaulted field may be absent.
   const t = raw as Partial<Track> & { id: string; kind: Track["kind"] };
   switch (t.kind) {
-    case "audio": {
-      const a = t as Partial<AudioTrack> & { id: string; asset: string };
-      return {
-        id: a.id,
-        kind: "audio",
-        asset: a.asset,
-        fit: a.fit ?? "loop",
-        volume: a.volume ?? 1,
-        fadeIn: a.fadeIn ?? 0,
-        fadeOut: a.fadeOut ?? 0,
-        from: a.from ?? 0,
-        to: a.to ?? "end",
-        ...(a.cues !== undefined ? { cues: a.cues } : {}),
-        ...(a.tolerance !== undefined ? { tolerance: a.tolerance } : {}),
-        ...(a.stems !== undefined ? { stems: a.stems } : {}),
-      };
-    }
-    case "overlay": {
-      const o = t as Partial<OverlayTrack> & { id: string; asset: string };
-      return { id: o.id, kind: "overlay", asset: o.asset, position: o.position ?? "top-right", margin: o.margin ?? 32, opacity: o.opacity ?? 1, from: o.from ?? 0, to: o.to ?? "end", ...(o.width !== undefined ? { width: o.width } : {}) };
-    }
-    case "subtitles": {
-      const s = t as Partial<SubtitlesTrack> & { id: string };
-      return { id: s.id, kind: "subtitles", source: "scenes", mode: s.mode ?? "sidecar" };
-    }
+    case "audio":
+      return { fit: "loop", volume: 1, fadeIn: 0, fadeOut: 0, from: 0, to: "end", ...t } as AudioTrack;
+    case "overlay":
+      return { position: "top-right", margin: 32, opacity: 1, from: 0, to: "end", ...t } as OverlayTrack;
+    case "subtitles":
+      return { source: "scenes", mode: "sidecar", ...t } as SubtitlesTrack;
   }
 }
 
@@ -157,8 +145,22 @@ export function nodesOf(film: Film): Node[] {
     if (isGeneratedAsset(a)) nodes.push({ id, kind: "asset", impl: a.impl, produces: a.produces, inputs: a.inputs, field: ["assets", id] });
   });
   film.scenes.forEach((s, i) => {
-    nodes.push({ id: s.id, kind: "scene", impl: s.impl, produces: s.produces, inputs: s.inputs, field: ["scenes", i] });
+    // A named audio asset is a dependency: the scene is blocked until it exists.
+    const known = s.audio !== undefined && s.audio in film.assets;
+    const inputs = known && s.audio && !s.inputs.includes(s.audio) ? [...s.inputs, s.audio] : s.inputs;
+    nodes.push({ id: s.id, kind: "scene", impl: s.impl, produces: s.produces, inputs, field: ["scenes", i] });
   });
+  // A `./`-prefixed param that another node produces is a dependency too: the
+  // narration a TTS node writes, then a transcription node reads, and so on.
+  const producedBy = new Map<string, string>();
+  for (const node of nodes) for (const path of Object.values(node.produces)) producedBy.set(normalize(path), node.id);
+  for (const node of nodes) {
+    const fromParams = Object.values(node.impl.params)
+      .filter((v): v is string => typeof v === "string" && /^\.\.?\//.test(v))
+      .map((v) => producedBy.get(normalize(v)))
+      .filter((id): id is string => id !== undefined && id !== node.id);
+    for (const id of fromParams) if (!node.inputs.includes(id)) node.inputs = [...node.inputs, id];
+  }
   return nodes;
 }
 
@@ -259,12 +261,20 @@ function checkStructure(loaded: LoadedFilm, errors: ErrorCollector): void {
   // --- scenes ---
   film.scenes.forEach((s, i) => {
     const field = (...rest: PathSegment[]) => ["scenes", i, ...rest];
-    const hasMedia = Boolean(s.produces.video || s.produces.audio);
+    const hasMedia = Boolean(s.produces.video || s.produces.audio || s.audio);
     if (s.duration === undefined && (s.durationPolicy !== "auto" || !hasMedia)) {
       add(field("duration"), `duration is required when durationPolicy is "${s.durationPolicy}" or the scene produces neither video nor audio`);
     }
-    if (s.audioMode === "keep" && s.produces.audio) add(field("audioMode"), `audioMode "keep" contradicts produces.audio`);
-    if (s.audioMode && !s.produces.video && !s.produces.audio) add(field("audioMode"), "audioMode has no effect without video or audio");
+    if (s.audio && s.produces.audio) {
+      add(field("audio"), "a scene cannot both produce its own audio and name an audio asset; drop one of them");
+    }
+    if (s.audio) {
+      const asset = film.assets[s.audio];
+      if (!asset) add(field("audio"), `unknown asset "${s.audio}"`);
+      else if (asset.kind !== "audio") add(field("audio"), `asset "${s.audio}" is ${asset.kind}, a scene's audio needs kind: audio`);
+    }
+    if (s.audioMode === "keep" && (s.produces.audio || s.audio)) add(field("audioMode"), `audioMode "keep" contradicts the scene's own audio`);
+    if (s.audioMode && !s.produces.video && !s.produces.audio && !s.audio) add(field("audioMode"), "audioMode has no effect without video or audio");
     const voice = s.intent?.narration?.voiceRef;
     if (voice) {
       const a = film.assets[voice];
@@ -297,6 +307,14 @@ function checkStructure(loaded: LoadedFilm, errors: ErrorCollector): void {
     if (t.kind === "subtitles") {
       subtitleTracks++;
       if (t.mode === "burn") add(field("mode"), `subtitle mode "burn" is reserved and not implemented in v1alpha1`);
+      if (t.source !== "scenes") {
+        // A whole-film subtitle file: it must be an asset, so existence, planning
+        // and staleness all work the same way as any other input.
+        const asset = film.assets[t.source];
+        if (!asset) add(field("source"), `unknown asset "${t.source}"`, 'use "scenes" or the name of an asset with kind: subtitle');
+        else if (asset.kind !== "subtitle") add(field("source"), `asset "${t.source}" is ${asset.kind}, the subtitle track needs kind: subtitle`);
+        else if (!isGeneratedAsset(asset) && !asset.uri.endsWith(".srt")) add(field("source"), `asset "${t.source}" is not an .srt file`);
+      }
       return;
     }
     if (t.kind === "audio" && t.stems !== undefined) {

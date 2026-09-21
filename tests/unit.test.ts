@@ -24,6 +24,8 @@ describe("sceneDuration (spec §2.2)", () => {
   test("missing media falls back to the plan and is flagged; image-only scenes are not estimates", () => {
     expect(sceneDuration(scene({ duration: 5 }), undefined)).toEqual({ duration: 5, estimated: true });
     expect(sceneDuration(scene({ duration: 5, produces: { image: "a.png" } }), undefined)).toEqual({ duration: 5, estimated: false });
+    // A named narration asset is media too: its absence makes the duration an estimate.
+    expect(sceneDuration(scene({ duration: 5, audio: "voice", produces: { image: "a.png" } }), undefined)).toEqual({ duration: 5, estimated: true });
   });
 });
 

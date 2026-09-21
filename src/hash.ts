@@ -23,42 +23,49 @@ export function canonicalJson(value: unknown): string {
 }
 
 /**
- * Hash of `impl.params` plus the content of every `./`-prefixed path it
- * contains (files, or directories walked recursively in a stable order).
- * Skipped: `node_modules` and `.git` inside referenced directories.
+ * Hash of `impl.params` plus the content of every `./`-prefixed path it contains.
+ *
+ * Files are hashed by content, which is what chains one node to another: a
+ * transcription that reads `./build/voice/s1.wav` goes stale when the narration
+ * is re-rendered. Directories are walked recursively, but **every declared
+ * produce is skipped** — otherwise a tool handed a directory would go stale
+ * whenever any sibling node writes into it, and a tool handed a directory it
+ * writes into would invalidate itself. Produces are already tracked by the lock,
+ * so nothing is lost.
  */
-export function paramsHash(params: unknown, dir: string): string {
-  return sha256Text(canonicalJson(enrich(params, dir)));
+export function paramsHash(params: unknown, dir: string, opts: { produces?: string[] } = {}): string {
+  const dirExclude = new Set((opts.produces ?? []).map((p) => resolve(dir, p)));
+  return sha256Text(canonicalJson(enrich(params, dir, dirExclude)));
 }
 
-function enrich(value: unknown, dir: string): unknown {
+function enrich(value: unknown, dir: string, dirExclude: Set<string>): unknown {
   if (typeof value === "string") {
     if (!/^\.\.?\//.test(value)) return value;
-    return { $path: value, $content: hashPath(resolve(dir, value)) };
+    return { $path: value, $content: hashPath(resolve(dir, value), dirExclude) };
   }
-  if (Array.isArray(value)) return value.map((v) => enrich(v, dir));
+  if (Array.isArray(value)) return value.map((v) => enrich(v, dir, dirExclude));
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = enrich(v, dir);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = enrich(v, dir, dirExclude);
     return out;
   }
   return value;
 }
 
 /** `file:<sha>` / `dir:<sha>` / `missing` — the marker makes a later creation change the hash. */
-export function hashPath(abs: string): string {
+export function hashPath(abs: string, dirExclude: Set<string> = new Set()): string {
   let st;
   try {
     st = statSync(abs);
   } catch {
     return "missing";
   }
-  if (st.isDirectory()) return `dir:${hashDirectory(abs)}`;
+  if (st.isDirectory()) return `dir:${hashDirectory(abs, dirExclude)}`;
   if (st.isFile()) return `file:${sha256File(abs)}`;
   return "other";
 }
 
-export function hashDirectory(abs: string): string {
+export function hashDirectory(abs: string, dirExclude: Set<string> = new Set()): string {
   const entries: string[] = [];
   const walk = (current: string): void => {
     const names = readdirSync(current, { withFileTypes: true })
@@ -67,6 +74,10 @@ export function hashDirectory(abs: string): string {
       .sort();
     for (const name of names) {
       const child = join(current, name);
+      // A declared produce is skipped entirely (not just content-hashed away):
+      // its presence in the directory must not move the hash either, or a
+      // sibling node writing into this directory would invalidate the node.
+      if (dirExclude.has(child)) continue;
       const rel = relative(abs, child).split("\\").join("/");
       let st;
       try {

@@ -3,6 +3,7 @@
 
 import type { Analysis } from "../project.ts";
 import type { PlacedScene } from "../timeline.ts";
+import { isGeneratedAsset, type Film } from "../types.ts";
 import { hasAlpha } from "../probe.ts";
 import { channelLayout, num, type FfmpegStep, type Geometry } from "./ffmpeg.ts";
 
@@ -16,6 +17,13 @@ export interface ClipPlan {
 }
 
 const CLIP_DIR = "build/clips";
+
+/** Where an audio asset's file lives: its uri, or what its node produces. */
+function audioPathOf(film: Film, assetName: string): string | undefined {
+  const asset = film.assets[assetName];
+  if (!asset) return undefined;
+  return isGeneratedAsset(asset) ? asset.produces.audio : asset.uri;
+}
 
 export function planClips(a: Analysis, geo: Geometry): ClipPlan[] {
   return a.timeline.scenes.map((p) => planClip(a, p, geo));
@@ -39,7 +47,9 @@ function planClip(a: Analysis, p: PlacedScene, geo: Geometry): ClipPlan {
   // A picture with an alpha channel is composited onto the film's background
   // instead of being padded: otherwise its transparent areas (a text card, a
   // logo) would flatten to black and `output.background` would be ignored.
-  const translucentImage = !scene.produces.video && hasAlpha(imageProbe);
+  const translucentImage = !scene.produces.video && !scene.produces.image ? false : !scene.produces.video && hasAlpha(imageProbe);
+  // A scene may have no picture of its own (narration over the film background).
+  const pictureless = !scene.produces.video && !scene.produces.image;
   if (scene.produces.video) {
     inputs.push(["-i", scene.produces.video]);
     videoInput = inputs.length - 1;
@@ -57,6 +67,11 @@ function planClip(a: Analysis, p: PlacedScene, geo: Geometry): ClipPlan {
     filters.push(`${fg}fps=${num(geo.fps)},${fit},setsar=1,format=rgba[fg]`);
     filters.push(`${bg}format=rgba[bgc]`);
     filters.push(`[bgc][fg]overlay=${place}:format=auto,trim=duration=${num(d)},setpts=PTS-STARTPTS[v]`);
+  } else if (pictureless) {
+    // Narration (or music) with no picture: a card in the film's background colour.
+    inputs.push(["-f", "lavfi", "-i", `color=c=${geo.background}:s=${geo.width}x${geo.height}:r=${num(geo.fps)}`]);
+    videoInput = inputs.length - 1;
+    vsrc = `[${videoInput}:v]`;
   } else {
     inputs.push(["-loop", "1", "-framerate", num(geo.fps), "-i", scene.produces.image!]);
     videoInput = inputs.length - 1;
@@ -77,14 +92,17 @@ function planClip(a: Analysis, p: PlacedScene, geo: Geometry): ClipPlan {
   }
 
   // ---- audio source (spec §2.3) ----
-  const mode = scene.audioMode ?? (scene.produces.audio ? "replace" : "keep");
+  // The scene's own audio: produced here, or an asset a TTS node produced (spec §2.3).
+  const namedAudio = scene.audio ? audioPathOf(a.loaded.film, scene.audio) : undefined;
+  const ownAudio = scene.produces.audio ?? namedAudio;
+  const mode = scene.audioMode ?? (ownAudio ? "replace" : "keep");
   const videoHasAudio = Boolean(videoProbe?.hasAudio);
   const layout = channelLayout(geo.channels);
   const conform = `aresample=${geo.sampleRate},aformat=sample_fmts=fltp:channel_layouts=${layout}`;
   const fit = `apad,atrim=duration=${num(d)},asetpts=PTS-STARTPTS`;
   const sources: string[] = [];
-  if ((mode === "replace" || mode === "mix") && scene.produces.audio) {
-    inputs.push(["-i", scene.produces.audio]);
+  if ((mode === "replace" || mode === "mix") && ownAudio) {
+    inputs.push(["-i", ownAudio]);
     sources.push(`[${inputs.length - 1}:a]`);
   }
   if ((mode === "keep" || mode === "mix") && scene.produces.video && videoHasAudio) {

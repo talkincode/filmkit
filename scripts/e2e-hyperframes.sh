@@ -5,17 +5,25 @@
 # with headless Chrome. Run it when touching profiles/hyperframes.yaml or the
 # cwd / healthcheckExpect machinery.
 #
-#   bash scripts/e2e-hyperframes.sh [workdir]
+#   bash scripts/e2e-hyperframes.sh [workdir] [--narration]
 #
 # Asserts: the structural pass is clean, the project gate (`hyperframes check`)
 # runs inside the project, the render honours the film's geometry via normalize,
 # the composed film meets `output`, and editing the composition marks the scene
 # stale while a variables change re-renders.
+#
+# `--narration` additionally exercises text -> speech -> transcript -> .srt ->
+# composed film. That needs local models: a Python venv with kokoro-onnx and
+# soundfile (point HYPERFRAMES_PYTHON at it, or let this script create one), and
+# whisper-cpp for transcription. For Chinese narration pass a multilingual
+# whisper model (`model: large-v3`): the default `small.en` is English-only.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${1:-$(mktemp -d)}"
+NARRATION=false
+for arg in "$@"; do [ "$arg" = "--narration" ] && NARRATION=true; done
 FILM="$WORK/film"
 FK=(bun "$REPO_ROOT/bin/filmkit.ts")
 
@@ -127,6 +135,83 @@ spec=$(ffprobe -v error -show_entries stream=codec_name,width,height,sample_rate
 echo "composed streams: $spec"
 echo "$spec" | grep -q 'h264,640,360' || fail "video spec wrong: $spec"
 echo "$spec" | grep -q '44100,2' || fail "audio spec wrong: $spec"
+
+if $NARRATION; then
+  say "narration chain: text -> speech -> transcript -> .srt -> film"
+  VENV="${HYPERFRAMES_VENV:-$WORK/hfvenv}"
+  if [ ! -x "$VENV/bin/python" ]; then
+    python3 -m venv "$VENV" >/dev/null 2>&1 || skip "cannot create a venv for kokoro-onnx"
+    "$VENV/bin/pip" install -q --upgrade pip >/dev/null 2>&1
+    "$VENV/bin/pip" install -q kokoro-onnx soundfile >/dev/null 2>&1 || skip "cannot pip install kokoro-onnx soundfile"
+  fi
+  export HYPERFRAMES_PYTHON="$VENV/bin/python"
+
+  mkdir -p "$FILM/narr/profiles" "$FILM/narr/assets"
+  cp "$REPO_ROOT/profiles/hyperframes.yaml" "$FILM/narr/profiles/"
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=0x0b1729:s=640x360 -frames:v 1 "$FILM/narr/assets/card.png"
+  cat > "$FILM/narr/filmkit.yaml" <<'YAML'
+apiVersion: filmkit/v1alpha1
+kind: Film
+metadata: { name: narr-e2e, title: "narration e2e" }
+profiles:
+  - ref: filmkit/static
+  - ref: ./profiles/hyperframes.yaml
+assets:
+  voice:
+    kind: audio
+    impl:
+      profile: hyperframes
+      task: tts
+      params: { text: "The corridor was empty that night, except for one light.", voice: af_heart }
+    produces: { audio: ./build/voice/s1.wav }
+  transcript:
+    kind: file
+    impl:
+      profile: hyperframes
+      task: transcribe
+      params: { input: ./build/voice/s1.wav, dir: ./build/voice, language: en }
+    produces: { file: ./build/voice/transcript.json }
+  captions:
+    kind: subtitle
+    impl:
+      profile: hyperframes
+      task: subtitles
+      params: { transcript: ./build/voice/transcript.json }
+    produces: { subtitle: ./build/voice/s1.srt }
+output:
+  container: mp4
+  video: { width: 640, height: 360, fps: 25, codec: h264 }
+  audio: { codec: aac, sampleRate: 48000, channels: 2 }
+  background: "0x0b1729"
+scenes:
+  - id: s1
+    duration: 2
+    durationPolicy: min
+    audio: voice
+    impl: { profile: filmkit/static, task: clip }
+    produces: { image: ./assets/card.png }
+timeline:
+  tracks:
+    - { id: subs, kind: subtitles, source: captions, mode: sidecar }
+YAML
+  # The narration film needs the same hyperframes install (it uses --no-install).
+  (cd "$FILM/narr" && ln -sfn ../video/node_modules node_modules && ln -sfn ../video/package.json package.json)
+  cd "$FILM/narr"
+  "${FK[@]}" validate
+  "${FK[@]}" run voice
+  "${FK[@]}" run transcript
+  "${FK[@]}" run captions
+  [ -s build/voice/s1.srt ] || fail "the narration chain produced no .srt"
+  echo "--- transcribed captions ---"; cat build/voice/s1.srt
+  "${FK[@]}" build
+  nar=$(ffprobe -v error -show_entries format=duration -of csv=p=0 build/narr-e2e.mp4)
+  python3 - "$nar" <<'PY2' || fail "composed narration film has the wrong duration"
+import sys
+d = float(sys.argv[1]); assert 2.0 <= d <= 8.0, d
+PY2
+  "${FK[@]}" status | tail -1
+  cd "$FILM"
+fi
 
 say "staleness follows the composition and the variables file"
 "${FK[@]}" plan | grep -q 'nothing to do' || fail "expected an up-to-date plan right after build"

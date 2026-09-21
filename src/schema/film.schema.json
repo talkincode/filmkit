@@ -136,6 +136,10 @@
           "inputs": { "type": "array", "items": { "$ref": "#/$defs/identifier" } },
           "impl": { "$ref": "#/$defs/impl" },
           "produces": { "$ref": "#/$defs/produces" },
+          "audio": {
+            "$ref": "#/$defs/identifier",
+            "description": "Name of an audio asset that carries this scene's narration. Use it when the narration is produced by its own node (a TTS task) while the picture comes from this scene's produces; mutually exclusive with produces.audio."
+          },
           "audioMode": { "enum": ["replace", "mix", "keep"] }
         }
       }
@@ -187,7 +191,11 @@
                   "required": ["source"],
                   "properties": {
                     "id": true, "kind": true,
-                    "source": { "const": "scenes" },
+                    "source": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "`scenes` collects each scene's produces.subtitle and shifts it by the scene start. Anything else names an asset of kind subtitle whose file is used as-is (absolute timings) — the shape a transcription of the whole narration produces."
+                    },
                     "mode": { "enum": ["sidecar", "embed", "burn"] }
                   }
                 }

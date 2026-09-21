@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { type LoadedFilm, type Node, nodesOf } from "./film.ts";
 import { paramsHash, sha256File } from "./hash.ts";
 import { isStillImage, probeMedia } from "./probe.ts";
-import type { Lock, LockNode, NodeStatus, Probe, ProduceType } from "./types.ts";
+import { isGeneratedAsset, type Film, type Lock, type LockNode, type NodeStatus, type Probe, type ProduceType } from "./types.ts";
 
 export interface ProduceState {
   path: string;
@@ -36,6 +36,14 @@ export interface ObserveOptions {
   probe: boolean;
 }
 
+/** Every path any node in the film declares as a produce. */
+function allProducePaths(film: Film): string[] {
+  const paths: string[] = [];
+  for (const asset of Object.values(film.assets)) if (isGeneratedAsset(asset)) paths.push(...Object.values(asset.produces));
+  for (const scene of film.scenes) paths.push(...Object.values(scene.produces));
+  return paths;
+}
+
 export function observe(loaded: LoadedFilm, lock: Lock | undefined, opts: ObserveOptions = { probe: true }): ProjectState {
   const nodes = new Map<string, NodeState>();
   for (const node of nodesOf(loaded.film)) {
@@ -45,7 +53,9 @@ export function observe(loaded: LoadedFilm, lock: Lock | undefined, opts: Observ
 }
 
 export function observeNode(loaded: LoadedFilm, node: Node, previous: LockNode | undefined, opts: ObserveOptions): NodeState {
-  const paramsHashValue = paramsHash(node.impl.params, loaded.dir);
+  // Directory params skip every declared produce (src/hash.ts): a tool handed a
+  // directory must not go stale because a sibling node writes into it.
+  const paramsHashValue = paramsHash(node.impl.params, loaded.dir, { produces: allProducePaths(loaded.film) });
   const produces: NodeState["produces"] = {};
   let existing = 0;
   let total = 0;

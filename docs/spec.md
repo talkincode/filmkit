@@ -131,6 +131,7 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 | `inputs` | [string] | 否 | 资产名或场景 id；形成 DAG 边 |
 | `impl` | Impl | 是 | |
 | `produces` | Produces | 是 | |
+| `audio` | 资产名 | 否 | 本场景旁白的音频资产（`kind: audio`）；与 `produces.audio` 互斥。用于"旁白由独立节点（TTS）产出、画面由本场景产出"的情形 |
 | `audioMode` | `replace` \| `mix` \| `keep` | 否 | §2.3 |
 
 `duration` 必填条件：`durationPolicy` 为 `exact` 或 `min`，或 `produces` 中既无 `video` 也无 `audio`（此时无法推出自然时长）。
@@ -208,7 +209,7 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `source` | `scenes` | 必填 | 收集每个场景 `produces.subtitle`，按场景起点偏移合并 |
+| `source` | `scenes` 或资产名 | 必填 | `scenes`：收集每个场景 `produces.subtitle`，按场景起点偏移、按场景窗口裁剪后合并；资产名：该资产（`kind: subtitle`）的文件按**原时间轴**使用——整片转录的产物就是这个形状 |
 | `mode` | `sidecar` \| `embed` \| `burn` | `sidecar` | `sidecar`：写出 `<output stem>.srt`；`embed`：同时封装为字幕流（mp4/mov→`mov_text`，mkv/webm→`srt`/`webvtt`）；`burn` **保留**（需 libass） |
 
 `from`/`to` 对字幕轨无意义，MUST NOT 出现。同一 Film 最多一条字幕轨。
@@ -252,7 +253,9 @@ total  = endₙ
 
 ### 2.3 场景音频
 
-`produces.video` 自带音轨记为 `V.a`，`produces.audio` 记为 `A`。
+场景自己的音频有两个来源，二选一：`produces.audio`（由本场景的 impl 产出），或 `scenes[].audio: <资产名>`（由另一个节点——典型是 TTS 任务——产出，场景通过它引用）。两者同时出现 → `invalid-input`。`scenes[].audio` 会形成一条隐式依赖：该资产未就绪时场景处于 `blocked`。
+
+`produces.video` 自带音轨记为 `V.a`，场景自己的音频记为 `A`。
 
 | `audioMode` | 场景音频 |
 | --- | --- |
@@ -348,7 +351,7 @@ tasks:        {...}        # §3.3
 
 **工作目录（`tasks[].cwd`）**：默认在项目目录内执行。声明 `cwd`（例如 Remotion 项目目录）后，工具不再位于项目目录，因此 filmkit 交给它的**一切路径都展开为绝对路径**：`${produces.*}`、`${inputs.*}` 以及 `./`/`../` 开头的 `params` 值。没有 `./` 前缀的字符串（如 Remotion 的 `entry: src/index.ts`）原样传递，那是工具自己的词汇表、相对 `cwd`。
 
-**输入哈希**：节点的陈旧判定（§4）不只比较 `impl.params` 的规范化 JSON，还比较其中 `./`/`../` 路径值的**内容**——文件取内容哈希，目录递归取（跳过 `node_modules` 与 `.git`），不存在取 `missing`。这样 Agent 改动工具自己的文档（scorekit scene、Remotion 项目）或 props 文件时，节点会正确变为 `stale`，而不是让 `build` 静默复用旧产物。
+**输入哈希**：节点的陈旧判定（§4）不只比较 `impl.params` 的规范化 JSON，还比较其中 `./`/`../` 路径值的**内容**——文件取内容哈希，目录递归取（跳过 `node_modules` 与 `.git`），不存在取 `missing`。文件按内容哈希（这是节点间"链式过期"的来源：读 `./build/voice/s1.wav` 的转录节点会随旁白重渲染而过期）；目录递归哈希时**跳过所有已声明的产物**——否则被交给某个目录的工具会因为兄弟节点写入该目录（或它自己写入）而无端变 stale。产物本身已由 lock 记录，不损失信息。这样 Agent 改动工具自己的文档（scorekit scene、Remotion 项目）或 props 文件时，节点会正确变为 `stale`，而不是让 `build` 静默复用旧产物。
 
 ### 3.5 内置 Profile
 
@@ -388,11 +391,12 @@ build:                         # 仅 build 成功后
 
 ## 5. 字幕合并
 
-输入：每个场景的 `produces.subtitle`（SRT，UTF-8）。输出：`<output stem>.srt`。
+输入取决于 `source`（§1.8.2）：
 
-- 每条 cue 时间加上该场景 `startᵢ`；超出 `[startᵢ, endᵢ)` 的部分裁剪；完全超出者丢弃并在 `build` 输出中警告。
-- 重新编号；按开始时间稳定排序。
-- 毫秒精度，不做四舍五入以外的调整。
+- `source: scenes`：每个场景的 `produces.subtitle`（SRT，UTF-8）。每条 cue 时间加上该场景 `startᵢ`；超出 `[startᵢ, endᵢ)` 的部分裁剪；完全超出者丢弃。
+- `source: <资产名>`：该资产的文件（静态 `uri` 或节点产出的 `.srt`）按原时间轴使用，只做裁剪到 `[0, total)`。
+
+两种情况都会：把越界丢弃的 cue 与"起点在窗口内但结尾超出、被截短"的 cue 记为 `build` 警告（后者意味着字幕可能被截断，值得看一眼）；重新编号；按开始时间稳定排序；毫秒精度。输出 `<output stem>.srt`，`mode: embed` 时另封装为字幕流。
 
 ## 6. CLI 契约
 

@@ -43,6 +43,12 @@ export interface Scene {
   inputs: string[];
   impl: Impl;
   produces: Produces;
+  /**
+   * Audio asset that carries this scene's narration, for the case where the
+   * narration is produced by its own node (a TTS task) and the picture comes
+   * from this scene's `produces`. Mutually exclusive with `produces.audio`.
+   */
+  audio?: string;
   audioMode?: "replace" | "mix" | "keep";
 }
 
@@ -111,7 +117,13 @@ export interface AudioTrack {
 export interface SubtitlesTrack {
   id: string;
   kind: "subtitles";
-  source: "scenes";
+  /**
+   * `scenes`: collect each scene's `produces.subtitle`, shift by the scene start,
+   * clip to the scene window. Any other value names an asset of kind subtitle
+   * whose file is used as-is (absolute timings) — what a transcription of the
+   * whole narration produces.
+   */
+  source: string;
   mode: "sidecar" | "embed" | "burn";
 }
 

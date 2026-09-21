@@ -31,7 +31,30 @@
 #   * Rendering is an explicit act: run `hyperframes preview` (Studio) and get
 #     approval first, then `filmkit run <id>`. Use quality: draft while
 #     iterating, delivery (or the default) for the final take.
-#   * HyperFrames is optional: without it `doctor` reports the gap.
+#   * HyperFrames must be installed where the film runs: `npm install hyperframes`
+#     (the commands use `npx --no-install` on purpose, so nothing is downloaded
+#     behind your back). Without it `doctor` reports the gap.
+#   * `tts` additionally needs a Python venv with kokoro-onnx + soundfile; point
+#     HYPERFRAMES_PYTHON at it:
+#       python3 -m venv .venv && .venv/bin/pip install kokoro-onnx soundfile
+#       export HYPERFRAMES_PYTHON="$PWD/.venv/bin/python"
+#   * `transcribe` needs whisper-cpp (or Parakeet). Chinese narration needs a
+#     multilingual model — pass `model: large-v3`; the default `small.en` will
+#     transcribe Chinese speech as English gibberish.
+#
+# This Profile also covers narration, transcription and matting, because
+# HyperFrames ships local models for all three (no cloud credentials):
+#   * `tts`              text -> speech audio (Kokoro-82M; one Chinese voice,
+#                        `zf_xiaobei`, and English ones). First run downloads
+#                        the model; `doctor` reports it as an optional feature.
+#   * `transcribe`       audio/video -> .srt (whisper or Parakeet, local).
+#                        First run needs whisper-cpp; `--optional` is exposed
+#                        for pipelines that should continue without captions.
+#   * `matte-image`      image -> PNG with alpha (background removed). Feed it to
+#                        an overlay track or a card scene: alpha pictures are
+#                        composited onto `output.background`.
+# Transparent *video* mattes (webm/mov) are not wired into compose yet — the
+# film output container would have to carry alpha.
 apiVersion: filmkit/v1alpha1
 kind: Profile
 metadata:
@@ -53,8 +76,125 @@ runtime:
     equals: true
   exitCodes: { "0": ok }
 capabilities:
-  produces: [video]
+  produces: [video, audio, subtitle, image]
 tasks:
+  tts:
+    description: hyperframes tts — narration audio from text (local Kokoro model).
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Text to speak. The agent writes it (filmkit never generates prose).
+        voice:
+          type: string
+          description: 'Kokoro voice id, e.g. zf_xiaobei (zh), af_heart (en-US). See `hyperframes tts --list`.'
+        lang:
+          enum: [en-us, en-gb, es, fr-fr, hi, it, pt-br, ja, zh]
+          description: Phonemizer language; defaults to the voice's own language.
+        speed:
+          type: number
+          exclusiveMinimum: 0
+          description: Speech speed multiplier.
+    produces: [audio]
+    invocation:
+      - npx
+      - "--no-install"
+      - hyperframes
+      - tts
+      - "${params.text}"
+      - "--output=${produces.audio}"
+      - "--voice=${params.voice?}"
+      - "--lang=${params.lang?}"
+      - "--speed=${params.speed?}"
+  transcribe:
+    description: hyperframes transcribe — word-level transcription into a transcript JSON.
+    # Two commands, so two nodes: `transcribe` writes <dir>/transcript.json and
+    # `subtitles` exports an .srt from it. The film wires them with a ./ path,
+    # which makes filmkit order them and hash the transcript for staleness.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [input, dir]
+      properties:
+        input:
+          type: string
+          description: 'Audio or video to transcribe (a ./ path, e.g. ./build/voice/s1.wav). Checked, hashed and passed absolute.'
+        dir:
+          type: string
+          description: 'Directory the transcript JSON is written into; the tool always names it transcript.json (a ./ path, usually the same directory as the input).'
+        language:
+          type: string
+          description: 'Language code, e.g. zh or en. Filters out speech in other languages.'
+        engine:
+          enum: [auto, parakeet, whisper]
+          description: ASR engine; auto prefers Parakeet when it is installed (English-focused).
+        model:
+          enum: [tiny.en, base.en, small.en, medium.en, large-v3]
+          description: 'Whisper model. The default small.en is English-only: for Chinese pass large-v3 (best) or medium.en is still English-only, so use large-v3.'
+        optional:
+          type: boolean
+          description: true exits 0 when whisper-cpp is unavailable instead of failing. Default false, so a missing caption source is visible.
+    produces: [file]
+    invocation:
+      - npx
+      - "--no-install"
+      - hyperframes
+      - transcribe
+      - "${params.input}"
+      - "--dir=${params.dir}"
+      - "--language=${params.language?}"
+      - "--engine=${params.engine?}"
+      - "--model=${params.model?}"
+      - "--optional=${params.optional?}"
+  subtitles:
+    description: hyperframes transcribe --to=srt — export a transcript JSON as an .srt sidecar.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [transcript]
+      properties:
+        transcript:
+          type: string
+          description: 'Transcript JSON to export (a ./ path, usually the previous node''s produces.file).'
+        preserveCues:
+          type: boolean
+          description: true keeps every transcript entry as its own cue; leave it off to let the tool group words into readable captions.
+    produces: [subtitle]
+    invocation:
+      - npx
+      - "--no-install"
+      - hyperframes
+      - transcribe
+      - "${params.transcript}"
+      - "--to=srt"
+      - "--output=${produces.subtitle}"
+      - "--preserve-cues=${params.preserveCues?}"
+  matte-image:
+    description: hyperframes remove-background — cut the background out of a still image (PNG with alpha).
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [input]
+      properties:
+        input:
+          type: string
+          description: 'Source image (a ./ path, e.g. ./assets/portrait.jpg).'
+        device:
+          enum: [auto, cpu, coreml, cuda]
+          description: Execution provider for the matting model.
+    produces: [image]
+    invocation:
+      - npx
+      - "--no-install"
+      - hyperframes
+      - remove-background
+      - "${params.input}"
+      - "--output=${produces.image}"
+      - "--device=${params.device?}"
   render:
     description: hyperframes render — one composition to one video file.
     cwd: "${params.project}"

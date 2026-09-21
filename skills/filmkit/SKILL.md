@@ -275,6 +275,78 @@ scenes:
   get text into a film when the local ffmpeg has no `drawtext`/libass (see the
   next section). It needs an imagine build with resvg support.
 
+## Narration and subtitles (all local)
+
+`profiles/hyperframes.yaml` covers the whole chain with local models, no cloud
+keys — three nodes, each one command, wired by `./` paths:
+
+```yaml
+assets:
+  voice:                                   # 1. text -> speech
+    kind: audio
+    impl: { profile: hyperframes, task: tts, params: { text: "深夜的律所走廊…", voice: zf_xiaobei, lang: zh } }
+    produces: { audio: ./build/voice/s1.wav }
+  transcript:                              # 2. speech -> word-level transcript
+    kind: file
+    impl: { profile: hyperframes, task: transcribe, params: { input: ./build/voice/s1.wav, dir: ./build/voice, language: zh, model: large-v3 } }
+    produces: { file: ./build/voice/transcript.json }
+  captions:                                # 3. transcript -> .srt
+    kind: subtitle
+    impl: { profile: hyperframes, task: subtitles, params: { transcript: ./build/voice/transcript.json } }
+    produces: { subtitle: ./build/voice/s1.srt }
+
+scenes:
+  - id: s1
+    durationPolicy: min        # the narration decides how long the scene lasts
+    audio: voice               # this scene's narration comes from the asset above
+    impl: { profile: filmkit/static, task: clip }
+    produces: { image: ./assets/card.png }
+
+timeline:
+  tracks:
+    - { id: subs, kind: subtitles, source: captions, mode: sidecar }
+```
+
+What to know:
+
+- `scenes[].audio` names the narration asset (mutually exclusive with
+  `produces.audio`) and makes the scene wait for it: `plan` shows the scene as
+  `blocked` until the tts node has run.
+- `subtitles.source: <asset>` uses a whole-film SRT on its own timeline; the
+  default `source: scenes` instead collects per-scene SRTs and shifts them.
+  Cues that run past the film are clipped and reported as build warnings.
+- Chain staleness works through content: re-run the narration and the
+  transcription node becomes `stale` (it reads the wav by `./` path).
+- `tts` needs `kokoro-onnx` + `soundfile` in a venv (`HYPERFRAMES_PYTHON`), and
+  `transcribe` needs whisper-cpp. Chinese needs `model: large-v3` — the default
+  `small.en` turns Chinese speech into English gibberish. Both are reported by
+  the tool with the exact fix when missing.
+- `matte-image` cuts a background out of a still (PNG with alpha) for overlays
+  and card scenes.
+
+### Wrapping your own local tool
+
+The chain above is not HyperFrames-specific: any tool becomes a Profile. This is
+the shape for a local TTS wrapper that is not on `PATH` (the pattern, not a
+shipped profile — bundled profiles must be reproducible by strangers):
+
+```yaml
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata: { name: local-tts, version: "1" }
+runtime:
+  type: cli
+  binary: python3            # or an absolute path to your wrapper
+tasks:
+  speak:
+    paramsSchema: { type: object, required: [text, voice], properties: { text: { type: string }, voice: { type: string }, speed: { type: number } } }
+    produces: [audio]
+    invocation: ["$HOME/.local/bin/my-tts", "--text", "${params.text}", "--voice", "${params.voice}", "--out", "${produces.audio}"]
+```
+
+Swap `binary`/`invocation` for your command, keep `paramsSchema` closed, and
+filmkit gives you validation, exit-code mapping, staleness and `plan` for free.
+
 ## Text cards and captions without ffmpeg's drawtext
 
 Two patterns, both just existing filmkit features:

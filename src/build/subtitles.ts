@@ -44,12 +44,16 @@ export interface MergeInput {
 
 export interface MergeResult {
   cues: Cue[];
+  /** Cues that fell entirely outside their window. */
   dropped: { sceneId: string; cue: Cue }[];
+  /** Cues that started inside their window but ran past its end, so they were shortened. */
+  clipped: { sceneId: string; cue: Cue; to: number }[];
 }
 
 export function mergeCues(inputs: MergeInput[]): MergeResult {
   const out: Cue[] = [];
   const dropped: MergeResult["dropped"] = [];
+  const clipped: MergeResult["clipped"] = [];
   for (const inp of inputs) {
     const window = inp.end - inp.start;
     for (const c of inp.cues) {
@@ -57,11 +61,12 @@ export function mergeCues(inputs: MergeInput[]): MergeResult {
         dropped.push({ sceneId: inp.sceneId, cue: c });
         continue;
       }
+      if (c.end > window) clipped.push({ sceneId: inp.sceneId, cue: c, to: round3(inp.end) });
       out.push({ start: round3(inp.start + Math.max(0, c.start)), end: round3(inp.start + Math.min(window, c.end)), text: c.text });
     }
   }
   out.sort((x, y) => x.start - y.start || x.end - y.end);
-  return { cues: out, dropped };
+  return { cues: out, dropped, clipped };
 }
 
 export function formatSrt(cues: Cue[]): string {

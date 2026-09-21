@@ -8,10 +8,10 @@
 // `validate`/`build` turn them into errors themselves.
 
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { normalize, resolve } from "node:path";
 import { ErrorCollector, FilmkitError, invalid, type ErrorDetail } from "./errors.ts";
 import { classifyExit, exec, execFailure } from "./exec.ts";
-import { at, type LoadedFilm, type Node, loadFilm } from "./film.ts";
+import { at, nodesOf, type LoadedFilm, type Node, loadFilm } from "./film.ts";
 import { downstreamOf, topoOrder } from "./graph.ts";
 import { readLock } from "./lock.ts";
 import { checkExactTrack, exactTracks } from "./cues.ts";
@@ -98,11 +98,28 @@ function collectMissingFiles(loaded: LoadedFilm): { missing: MissingFile[]; erro
     ),
     ...film.scenes.map((s, i) => ({ id: s.id, params: s.impl.params, field: ["scenes", i, "impl", "params"] as (string | number)[] })),
   ];
+  // Paths another node produces are work items of that node, not missing inputs:
+  // `plan` orders the producer first and the consumer stays blocked until then.
+  // The same goes for a directory that *contains* a declared produce — a tool
+  // asked to write into `./build/voice` is not missing anything when the tts
+  // node that fills it has not run yet.
+  const producedPaths = new Set<string>();
+  const producedDirs: string[] = [];
+  for (const node of nodesOf(film)) {
+    for (const path of Object.values(node.produces)) {
+      const normalized = normalize(path);
+      producedPaths.add(normalized);
+      const cut = normalized.lastIndexOf("/");
+      if (cut > 0) producedDirs.push(`${normalized.slice(0, cut)}/`);
+    }
+  }
   for (const n of nodeParams) {
     for (const [k, v] of Object.entries(n.params)) {
-      if (typeof v === "string" && (v.startsWith("./") || v.startsWith("../")) && !existsSync(resolve(dir, v))) {
-        out.push({ path: v, field: formatFieldPath([...n.field, k]), usedBy: [n.id] });
-      }
+      if (typeof v !== "string" || !(v.startsWith("./") || v.startsWith("../"))) continue;
+      const normalized = normalize(v);
+      if (producedPaths.has(normalized)) continue;
+      if (producedDirs.some((d) => `${normalized}/`.startsWith(d))) continue;
+      if (!existsSync(resolve(dir, v))) out.push({ path: v, field: formatFieldPath([...n.field, k]), usedBy: [n.id] });
     }
   }
   // A task's cwd (a tool project directory) is an input too.

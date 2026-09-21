@@ -166,7 +166,9 @@ describe("build", () => {
     const srt = readFileSync(p.path("build/t.srt"), "utf8");
     expect(srt).toContain("00:00:00,200 --> 00:00:01,000");
     expect(srt).toContain("00:00:01,500 --> 00:00:02,500");
-    expect(r.out!.warnings).toHaveLength(0);
+    // The intro's second cue runs past the scene window, which is now reported.
+    expect(r.out!.warnings).toHaveLength(1);
+    expect(r.out!.warnings[0]).toMatch(/subtitle cue in intro at 1.5s runs past 2.5s and was clipped/);
     // Filtergraph is written and mentions every stage.
     const fg = readFileSync(p.path("build/compose.filtergraph.txt"), "utf8");
     for (const s of ["xfade=transition=fade:duration=0.4:offset=2.1", "acrossfade", "-stream_loop -1", "overlay=main_w-overlay_w-", "amix=inputs=2", "concat=n=2"]) expect(fg).toContain(s);

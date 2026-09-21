@@ -12,11 +12,11 @@ import { emptyLock, writeLock } from "../lock.ts";
 import { probeMedia } from "../probe.ts";
 import { requireFilesPlaced, type Analysis } from "../project.ts";
 import { toLockNode } from "../state.ts";
-import type { Lock, Probe } from "../types.ts";
+import { isGeneratedAsset, type Lock, type Probe } from "../types.ts";
 import { planCompose } from "./compose.ts";
 import { geometryFor, PROBE_AUDIO_CODEC, PROBE_FORMAT, PROBE_VIDEO_CODEC, renderSteps, type FfmpegStep } from "./ffmpeg.ts";
 import { planClips } from "./normalize.ts";
-import { formatSrt, mergeCues, parseSrt } from "./subtitles.ts";
+import { formatSrt, mergeCues, parseSrt, type Cue, type MergeResult } from "./subtitles.ts";
 
 export interface BuildOptions {
   draft: boolean;
@@ -60,16 +60,21 @@ export function build(a: Analysis, opts: BuildOptions): BuildResult {
   let subtitlePath: string | undefined;
   let mergedSrt: string | undefined;
   if (subTrack) {
-    const inputs = a.timeline.scenes
-      .filter((p) => p.scene.produces.subtitle)
-      .map((p) => ({
-        sceneId: p.scene.id,
-        start: p.start,
-        end: p.end,
-        cues: parseSrt(readFileSync(resolve(dir, p.scene.produces.subtitle!), "utf8"), p.scene.produces.subtitle!),
-      }));
-    const merged = mergeCues(inputs);
+    const merged =
+      subTrack.source === "scenes"
+        ? mergeCues(
+            a.timeline.scenes
+              .filter((p) => p.scene.produces.subtitle)
+              .map((p) => ({
+                sceneId: p.scene.id,
+                start: p.start,
+                end: p.end,
+                cues: parseSrt(readFileSync(resolve(dir, p.scene.produces.subtitle!), "utf8"), p.scene.produces.subtitle!),
+              })),
+          )
+        : mergeWholeFilmSubtitles(a, subTrack.source);
     for (const d of merged.dropped) warnings.push(`subtitle cue in ${d.sceneId} at ${d.cue.start}s lies outside the scene and was dropped`);
+    for (const c of merged.clipped) warnings.push(`subtitle cue in ${c.sceneId} at ${c.cue.start}s runs past ${c.to}s and was clipped`);
     mergedSrt = formatSrt(merged.cues);
     const outPath = opts.draft ? film.output.path.replace(/\.([a-z0-9]+)$/, ".draft.$1") : film.output.path;
     subtitlePath = outPath.replace(/\.[a-z0-9]+$/, ".srt");
@@ -178,6 +183,30 @@ export function verifyOutput(a: Analysis, probe: Probe, expectedTotal: number): 
     bad(`duration (tolerance ${out.duration.tolerance}s)`, expectedTotal, probe.duration);
   }
   return problems;
+}
+
+/**
+ * A subtitle asset used for the whole film: its cues are already absolute, so
+ * they are only validated, sorted and clipped to the film (spec §5).
+ */
+function mergeWholeFilmSubtitles(a: Analysis, assetName: string): MergeResult {
+  const asset = a.loaded.film.assets[assetName]!;
+  const rel = isGeneratedAsset(asset) ? asset.produces.subtitle! : asset.uri;
+  const cues = parseSrt(readFileSync(resolve(a.loaded.dir, rel), "utf8"), rel);
+  const total = a.timeline.total;
+  const kept: Cue[] = [];
+  const dropped: MergeResult["dropped"] = [];
+  const clipped: MergeResult["clipped"] = [];
+  for (const cue of cues) {
+    if (cue.start >= total || cue.end <= 0) {
+      dropped.push({ sceneId: assetName, cue });
+      continue;
+    }
+    if (cue.end > total) clipped.push({ sceneId: assetName, cue, to: total });
+    kept.push({ start: cue.start, end: Math.min(cue.end, total), text: cue.text });
+  }
+  kept.sort((x, y) => x.start - y.start || x.end - y.end);
+  return { cues: kept, dropped, clipped };
 }
 
 export function ffmpegVersion(cwd: string): string {
