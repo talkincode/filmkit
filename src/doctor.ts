@@ -19,7 +19,12 @@ export interface DoctorReport {
     origin: string;
     binaries: { name: string; found: boolean }[];
     env: { name: string; set: boolean }[];
-    healthcheck?: { argv: string[]; ok: boolean; exit: number | null; expect?: { path: string; equals: unknown; ok: boolean } };
+    healthcheck?: {
+      argv: string[];
+      ok: boolean;
+      exit: number | null;
+      expect?: { select?: string; where?: Record<string, unknown>; path: string; equals: unknown; ok: boolean };
+    };
     ok: boolean;
   }[];
   problems: string[];
@@ -60,7 +65,13 @@ export function doctor(loaded: LoadedFilm | undefined, cwd: string): DoctorRepor
         const r = exec(rt.healthcheck, { cwd: hcCwd });
         healthcheck = { argv: rt.healthcheck, ok: r.status === 0, exit: r.status };
         if (rt.healthcheckExpect && r.status === 0) {
-          const expect = { path: rt.healthcheckExpect.path, equals: rt.healthcheckExpect.equals, ok: false };
+          const expect = {
+            select: rt.healthcheckExpect.select,
+            where: rt.healthcheckExpect.where,
+            path: rt.healthcheckExpect.path,
+            equals: rt.healthcheckExpect.equals,
+            ok: false,
+          };
           const reason = checkJsonExpectation(r.stdout, rt.healthcheckExpect);
           expect.ok = reason === undefined;
           healthcheck.expect = expect;
@@ -105,15 +116,56 @@ export function doctor(loaded: LoadedFilm | undefined, cwd: string): DoctorRepor
  * 0 while reporting "nothing configured" (`imagine models --json`) or while
  * always exiting 0 (`hyperframes doctor --json`) needs this.
  */
-export function checkJsonExpectation(stdout: string, expect: { path: string; equals: unknown }): string | undefined {
+/**
+ * Evaluate `healthcheckExpect` against a healthcheck's stdout. Returns a reason
+ * string when the expectation fails, undefined when it holds. A tool that exits
+ * 0 while reporting "nothing configured" (`imagine models --json`) or while
+ * always exiting 0 (`hyperframes doctor --json`) needs this.
+ *
+ * `select` walks to the array to inspect, `where` keeps the elements that match
+ * (then only the first is asserted on), `path`/`equals` state the requirement.
+ * Without `where`, any element may satisfy it.
+ */
+export function checkJsonExpectation(
+  stdout: string,
+  expect: { select?: string; where?: Record<string, unknown>; path: string; equals: unknown },
+): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
   } catch {
     return "healthcheck did not print JSON";
   }
-  const candidates = Array.isArray(parsed) ? parsed : [parsed];
+  let scopeValue: unknown = parsed;
+  if (expect.select) {
+    for (const key of expect.select.split(".")) {
+      if (scopeValue && typeof scopeValue === "object" && key in (scopeValue as Record<string, unknown>)) {
+        scopeValue = (scopeValue as Record<string, unknown>)[key];
+      } else {
+        return `healthcheck output has no ${expect.select}`;
+      }
+    }
+  }
   const wanted = JSON.stringify(expect.equals);
+  let candidates: unknown[];
+  if (Array.isArray(scopeValue)) {
+    if (expect.where) {
+      const pairs = Object.entries(expect.where);
+      const matches = scopeValue.filter(
+        (el) => el !== null && typeof el === "object" && pairs.every(([k, v]) => JSON.stringify((el as Record<string, unknown>)[k]) === JSON.stringify(v)),
+      );
+      if (matches.length === 0) {
+        return `no element of ${expect.select ?? "the output"} matches where ${JSON.stringify(expect.where)}`;
+      }
+      candidates = [matches[0]];
+    } else {
+      candidates = scopeValue;
+    }
+  } else if (expect.where) {
+    return `where expects an array at ${expect.select ?? "the output"}, got ${JSON.stringify(scopeValue)}`;
+  } else {
+    candidates = [scopeValue];
+  }
   const seen: unknown[] = [];
   for (const candidate of candidates) {
     let value: unknown = candidate;
@@ -128,7 +180,8 @@ export function checkJsonExpectation(stdout: string, expect: { path: string; equ
     seen.push(value);
   }
   const sample = [...new Set(seen.map((v) => JSON.stringify(v)))].slice(0, 3).join(", ");
-  return `no element has ${expect.path} = ${wanted}${seen.length ? ` (saw ${sample})` : ""}`;
+  const where = expect.where ? `the element matching ${JSON.stringify(expect.where)}` : "any element";
+  return `${where} of ${expect.select ?? "the output"} must have ${expect.path} = ${wanted}${seen.length ? ` (saw ${sample})` : ""}`;
 }
 
 export function formatDoctor(r: DoctorReport): string {

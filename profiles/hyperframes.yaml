@@ -1,0 +1,111 @@
+# Ready-to-use Profile for HyperFrames (https://github.com/heygen-com/hyperframes),
+# an HTML-composition renderer.
+#
+# Copy it next to your film and reference it:
+#   profiles:
+#     - ref: ./profiles/hyperframes.yaml
+#   scenes:
+#     - id: s1
+#       duration: 4
+#       durationPolicy: min
+#       impl:
+#         profile: hyperframes
+#         task: render
+#         params:
+#           project: ./video                 # the HyperFrames project directory
+#           quality: draft                   # draft while iterating; omit for the tool's default (looks)
+#           variables: ./video/vars/s1.json   # you write it; filmkit checks + hashes it
+#       produces: { video: ./build/s1.mp4 }
+#
+# What this Profile assumes, and what it does not do:
+#   * The project is a normal HyperFrames project (index.html + data-* timing +
+#     one paused timeline per composition). filmkit never reads or writes it.
+#   * Commands run inside `project` (tasks[].cwd), so every path filmkit hands
+#     over — produces, inputs and ./-prefixed params like `variables` — is
+#     absolute. `composition` (a project-relative path) is passed untouched.
+#   * `filmkit validate` delegates the task to `hyperframes check` (lint +
+#     runtime + layout + motion + contrast in one browser session): the project's
+#     content gate, about 8s per node. `filmkit validate --no-delegate` skips it
+#     for a fast structural pass; `check` exit 1 keeps its literal meaning, so it
+#     is reported as a tool failure with the tool's findings in the hint.
+#   * Rendering is an explicit act: run `hyperframes preview` (Studio) and get
+#     approval first, then `filmkit run <id>`. Use quality: draft while
+#     iterating, delivery (or the default) for the final take.
+#   * HyperFrames is optional: without it `doctor` reports the gap.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: hyperframes
+  version: ">=0.8"
+  description: Render one HyperFrames composition to a clip (optionally parametrized by a variables file).
+runtime:
+  type: cli
+  binary: npx
+  # doctor --json exits 0 even when something is missing, and its `ok` also
+  # covers optional features (TTS, BGM, whisper) that rendering does not need —
+  # so assert on the check that actually gates a render.
+  healthcheck: ["npx", "--no-install", "hyperframes", "doctor", "--json"]
+  healthcheckCwd: ./video
+  healthcheckExpect:
+    select: checks
+    where: { name: Chrome }
+    path: ok
+    equals: true
+  exitCodes: { "0": ok }
+capabilities:
+  produces: [video]
+tasks:
+  render:
+    description: hyperframes render — one composition to one video file.
+    cwd: "${params.project}"
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [project]
+      properties:
+        project:
+          type: string
+          description: HyperFrames project directory, relative to filmkit.yaml. Becomes the command's cwd.
+        composition:
+          type: string
+          description: 'Project-relative composition file (e.g. compositions/intro.html). Omit to render index.html.'
+        quality:
+          enum: [draft, looks, delivery, standard, high]
+          description: 'Iteration vs delivery. draft is cheapest; looks is the tool default; delivery is the high-quality take.'
+        format:
+          enum: [mp4, webm, mov, gif]
+          description: Output format. MOV/WebM keep transparency; png-sequence and hls are file sets and do not fit a single produce.
+        fps:
+          type: integer
+          minimum: 1
+          maximum: 240
+          description: Overrides the composition's data-fps. Setting it to the film's output.fps avoids retiming in the compose stage.
+        variables:
+          type: string
+          description: 'Path to a JSON object of composition variables (e.g. ./video/vars/s1.json). The agent writes it from `filmkit plan`; filmkit checks it exists, hashes it for staleness and passes an absolute path.'
+        strict:
+          type: boolean
+          description: true fails the render on lint errors instead of printing them and continuing.
+        strictVariables:
+          type: boolean
+          description: true fails the render when a variables key is undeclared or mistyped.
+        quiet:
+          type: boolean
+          description: true suppresses the verbose render trace.
+    produces: [video]
+    # The project's own content gate: lint + runtime + layout + motion + contrast.
+    validate: ["npx", "--no-install", "hyperframes", "check"]
+    invocation:
+      - npx
+      - "--no-install"
+      - hyperframes
+      - render
+      - "--output=${produces.video}"
+      - "--composition=${params.composition?}"
+      - "--quality=${params.quality?}"
+      - "--format=${params.format?}"
+      - "--fps=${params.fps?}"
+      - "--variables-file=${params.variables?}"
+      - "--strict=${params.strict?}"
+      - "--strict-variables=${params.strictVariables?}"
+      - "--quiet=${params.quiet?}"

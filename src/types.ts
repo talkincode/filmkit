@@ -184,7 +184,7 @@ export interface Profile {
      * when they cannot work (spec §3.1). When the output is an array, the
      * expectation passes if any element matches.
      */
-    healthcheckExpect?: { path: string; equals: unknown };
+    healthcheckExpect?: { select?: string; where?: Record<string, unknown>; path: string; equals: unknown };
     exitCodes?: Record<string, ExitClass>;
   };
   capabilities?: { produces?: ProduceType[]; consumes?: ProduceType[] };

@@ -170,7 +170,7 @@ describe("imagine profile", () => {
       setModels([{ name: "MAI-Image-2.6", ready: false }]);
       const bad = p.json<{ ok: boolean; problems: string[] }>("doctor");
       expect(bad.exitCode).toBe(3);
-      expect(bad.out!.problems.join("\n")).toMatch(/does not satisfy healthcheckExpect \(no element has ready = true \(saw false\)\)/);
+      expect(bad.out!.problems.join("\n")).toMatch(/does not satisfy healthcheckExpect \(any element of the output must have ready = true \(saw false\)\)/);
       expect(JSON.stringify(bad.out)).not.toContain("super-secret-value");
     } finally {
       delete process.env.AZURE_OPENAI_APIKEY;

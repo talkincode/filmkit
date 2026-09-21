@@ -23,7 +23,13 @@ for (const m of code.matchAll(/\bfilmkit\s+(?:--json\s+)?([a-z][a-z-]*)/g)) ment
 
 const cliCommands = new Set<string>(COMMANDS);
 const helpFlags = new Set([...HELP.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]));
-const skillFlags = new Set([...code.matchAll(/(--[a-z][a-z-]*)/g)].map((m) => m[1]!));
+// Only flags on lines that talk about filmkit: the skill also quotes other
+// tools' flags (hyperframes --fps, imagine --seed), and those are not ours.
+const filmkitLines = code
+  .split("\n")
+  .filter((line) => /\bfilmkit\b/.test(line))
+  .join("\n");
+const skillFlags = new Set([...filmkitLines.matchAll(/(--[a-z][a-z-]*)/g)].map((m) => m[1]!));
 
 const problems: string[] = [];
 for (const c of mentioned) if (!cliCommands.has(c)) problems.push(`SKILL.md mentions "filmkit ${c}" but the CLI has no such command`);

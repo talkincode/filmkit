@@ -205,6 +205,42 @@ What happens under the hood, and what it means for you:
 - A `durationPolicy: exact` scene is better served by rendering the exact frame
   range (`frames: "0-99"`) than by letting filmkit trim afterwards.
 
+## Rendering a scene with HyperFrames
+
+`profiles/hyperframes.yaml` wraps an HTML composition project:
+
+```yaml
+scenes:
+  - id: s1
+    duration: 3
+    durationPolicy: min
+    impl:
+      profile: hyperframes
+      task: render
+      params:
+        project: ./video                    # HyperFrames project dir; becomes the command's cwd
+        quality: draft                      # draft while iterating; omit for the tool's default
+        variables: ./video/vars/s1.json      # you write it; filmkit checks + hashes it
+    produces: { video: ./build/s1.mp4 }
+```
+
+- `filmkit validate` delegates the node to **`hyperframes check`** — lint,
+  runtime, layout, motion and contrast in one browser session (~8s per node).
+  That gate runs inside `./video`; `filmkit validate --no-delegate` is the fast
+  structural pass. `check` exiting 1 is reported as a tool failure whose hint
+  carries the tool's own findings, so read the hint before touching the project.
+- `filmkit run s1` renders. Paths cross the cwd boundary absolute (output and the
+  variables file); `composition`, when set, stays project-relative.
+- `durationPolicy: min` is the usual choice: the composition declares its own
+  `data-duration`, and the narration decides whether the film needs more.
+- Match the composition to the film: `data-width/height` and `--fps` (pass the
+  film's `output.fps`) keep the compose stage from re-scaling or retiming.
+- HyperFrames' own convention is to preview in Studio before rendering; keep
+  that: render only once the composition has been approved, and prefer
+  `quality: draft` while iterating.
+- Editing anything inside `./video` or the variables file marks the scene
+  `stale`, so `build` cannot silently reuse the previous take.
+
 ## Generating images with imagine
 
 `profiles/imagine.yaml` wraps [imagine](https://github.com/talkincode/imagine):
@@ -265,12 +301,15 @@ tasks:
     invocation: ["scorekit", "build", "${params.scene}", "-o", "${produces.audio}"]
 ```
 
-- Ready-made Profiles ship in the filmkit repository: `profiles/remotion.yaml`,
-  `profiles/imagine.yaml` and `profiles/scorekit.yaml`; copy them into your
-  project and reference them as `./profiles/<name>.yaml`.
-- `runtime.healthcheckExpect: { path, equals }` asserts on the healthcheck's JSON
-  output — for tools that exit 0 even when they cannot work (imagine with no
-  ready model, hyperframes doctor). Array output passes if any element matches.
+- Ready-made Profiles ship in the filmkit repository and are meant to be copied
+  into your project (`./profiles/<name>.yaml`): `hyperframes`, `remotion`,
+  `imagine`, `scorekit`. Each header documents the layout it assumes (mostly a
+  `./video` project directory) and what it refuses to do.
+- `runtime.healthcheckExpect: { select?, where?, path, equals }` asserts on the
+  healthcheck's JSON output — for tools that exit 0 even when they cannot work
+  (`imagine models --json` with no ready model; `hyperframes doctor --json`,
+  whose `ok` also covers optional features). `select` reaches a nested array,
+  `where` picks the one element to assert on.
 - `exitCodes` is what decides how a failing `validate` template is classified:
   a validator that exits 1 for "bad input" must declare `"1": invalid-input`,
   otherwise its failure is reported as a tool failure.

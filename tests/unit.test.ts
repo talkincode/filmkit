@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatSrt, mergeCues, parseSrt } from "../src/build/subtitles.ts";
+import { checkJsonExpectation } from "../src/doctor.ts";
 import { paramsHash } from "../src/hash.ts";
 import { sceneDuration } from "../src/timeline.ts";
 import { expandArgv, substituteVars } from "../src/vars.ts";
@@ -91,6 +92,39 @@ describe("argv templates: optional placeholders", () => {
     expect(bad.errors.map((e) => e.message)).toEqual(["params.coodec is not declared in the task's paramsSchema"]);
     const malformed = expandArgv(["tool", "--x=${params.a b?}"], {}, "x", ["codec"]);
     expect(malformed.errors.map((e) => e.message)).toEqual(['malformed placeholder name "params.a b"']);
+  });
+});
+
+describe("checkJsonExpectation", () => {
+  const models = JSON.stringify([{ name: "a", ready: false }, { name: "b", ready: true }]);
+  const doctor = JSON.stringify({ ok: false, checks: [{ name: "Chrome", ok: true }, { name: "TTS", ok: false }] });
+
+  test("array output: any element may satisfy the expectation", () => {
+    expect(checkJsonExpectation(models, { path: "ready", equals: true })).toBeUndefined();
+    expect(checkJsonExpectation(models, { path: "ready", equals: "true" })).toBe('any element of the output must have ready = "true" (saw false, true)');
+    expect(checkJsonExpectation(JSON.stringify([{ ready: false }]), { path: "ready", equals: true })).toBe(
+      "any element of the output must have ready = true (saw false)",
+    );
+  });
+
+  test("select + where assert on one named element of a nested array", () => {
+    const base = { select: "checks", where: { name: "Chrome" }, path: "ok", equals: true };
+    expect(checkJsonExpectation(doctor, base)).toBeUndefined();
+    expect(checkJsonExpectation(doctor, { ...base, where: { name: "TTS" } })).toBe(
+      'the element matching {"name":"TTS"} of checks must have ok = true (saw false)',
+    );
+    expect(checkJsonExpectation(doctor, { ...base, where: { name: "Nope" } })).toBe('no element of checks matches where {"name":"Nope"}');
+    expect(checkJsonExpectation(doctor, { ...base, select: "nope" })).toBe("healthcheck output has no nope");
+    expect(checkJsonExpectation(doctor, { select: "ok", where: { name: "Chrome" }, path: "ok", equals: true })).toBe(
+      "where expects an array at ok, got false",
+    );
+  });
+
+  test("object output, nested paths and non-JSON output", () => {
+    expect(checkJsonExpectation('{"ok":true}', { path: "ok", equals: true })).toBeUndefined();
+    expect(checkJsonExpectation('{"a":{"b":7}}', { path: "a.b", equals: 7 })).toBeUndefined();
+    expect(checkJsonExpectation('{"a":{"b":8}}', { path: "a.b", equals: 7 })).toMatch(/must have a.b = 7/);
+    expect(checkJsonExpectation("not json", { path: "ok", equals: true })).toBe("healthcheck did not print JSON");
   });
 });
 

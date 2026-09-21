@@ -303,7 +303,7 @@ tasks:        {...}        # §3.3
 | `requires.binaries` | [string] | 额外二进制 |
 | `healthcheck` | [string] | argv；`doctor` 执行，退出 0 视为健康。仅 `cli` |
 | `healthcheckCwd` | string | `healthcheck` 的工作目录（相对项目目录）。工具只装在某个项目目录内时必填，例如 Remotion 只在它自己的 `node_modules` 里 |
-| `healthcheckExpect` | `{ path, equals }` | `healthcheck` 退出 0 之后对其 **stdout JSON** 的断言：按 `path`（点分）取值，须 `equals` 给定标量。输出是数组时，任一元素满足即通过。用于"退出码说谎"的工具——`imagine models --json` 在没有任何可用模型时仍退出 0，`hyperframes doctor --json` 永远退出 0 |
+| `healthcheckExpect` | `{ select?, where?, path, equals }` | `healthcheck` 退出 0 之后对其 **stdout JSON** 的断言。`select` 是到数组的点分路径（省略表示输出本身就是数组）；`where` 按字段值（全等）筛选元素；`path`/`equals` 断言取值（无 `where` 时任一元素满足即可，有 `where` 时只看第一个命中元素）。用于"退出码说谎"的工具：`imagine models --json` 无可用模型仍退出 0（`{ path: ready, equals: true }`）；`hyperframes doctor --json` 永远退出 0，且它的 `ok` 还包含可选能力（TTS/BGM/whisper），所以要按名字挑出渲染真正需要的检查（`{ select: checks, where: { name: Chrome }, path: ok, equals: true }`） |
 | `exitCodes` | map<string,ExitClass> | 工具退出码 → `ok` \| `io` \| `invalid-input` \| `missing-dependency` \| `tool-failure`；未映射的非零码归为 `tool-failure` |
 
 ### 3.2 `capabilities`

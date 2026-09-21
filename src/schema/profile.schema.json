@@ -39,8 +39,19 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["path", "equals"],
-          "description": "Assertion on the healthcheck's JSON output. Needed when the tool exits 0 even while unusable (imagine models --json lists unready models, hyperframes doctor --json always exits 0). When the output is an array, the expectation passes if any element matches.",
+          "description": "Assertion on the healthcheck's JSON output. Needed when the tool exits 0 even while unusable: imagine models --json lists unready models and exits 0; hyperframes doctor --json always exits 0 and its `ok` also covers optional features, so the check that matters is selected by name.",
           "properties": {
+            "select": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$",
+              "description": "Dotted path from the JSON root to the array to inspect (e.g. `checks`). Omit when the output itself is the array."
+            },
+            "where": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "Keeps the array elements whose fields equal these scalars (all must match); `path`/`equals` then apply to the first match."
+            },
             "path": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$" },
             "equals": {}
           }
