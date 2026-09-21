@@ -42,7 +42,9 @@ prints environment variable values, only whether they are set.
    validates and builds as-is (two placeholder cards + generated sine BGM).
    Edit it; do not start from an empty file.
 2. **Validate after every edit**: `filmkit --json validate`. Errors carry a
-   `field` path and YAML `line`. Fix until exit `0`.
+   `field` path and YAML `line`. Fix until exit `0`. While referenced files are
+   still missing, `validate` reports them; `plan` lists them under
+   `missingFiles` so you can keep working.
 3. **Ask what to do**: `filmkit --json plan`. It lists only nodes that are
    `missing`, `partial`, `stale` or `blocked`, in dependency order, each with:
    - `executor`: `filmkit run` (a cli Profile with an invocation — just run
@@ -124,6 +126,43 @@ Rules that matter most:
   argv template resolves them at `run` time. No expressions, ever.
 - **`intent` is for you, not for filmkit.** It never affects the build.
 
+## Importing an existing Hyperstory project
+
+```bash
+filmkit import hyperstory ./schema.json --out filmkit.yaml   # never overwrites without --force
+```
+
+The conversion is one-way and intentionally lossy: fields filmkit cannot express
+(style hints, `videoPrompt`, `voiceSpeed`, `videoAudio.volume`, planned
+duration) are kept in `metadata.annotations` and reported as warnings. Scenes
+become `filmkit/static` nodes, so your next steps are the same as any project:
+`filmkit plan`, place or produce the files, then `filmkit build`. Point a scene
+at a video-generation Profile yourself when it needs generated footage.
+
+## Music that must hit the picture cuts (`fit: exact`)
+
+```yaml
+timeline:
+  tracks:
+    - { id: music, kind: audio, asset: scorekit-theme, fit: exact, cues: ./build/music/theme.cues.json }
+```
+
+`cues` is a neutral `filmkit/cues-v1` file **you** write from whatever the music
+tool reports (scorekit's `meta.json` `sections[].seconds`, a DAW export, …);
+filmkit never reads a tool's own timing document:
+
+```json
+{ "version": "filmkit/cues-v1",
+  "cues": [ { "id": "open", "start": 0, "end": 24.87 },
+            { "id": "body", "start": 24.87, "end": 49.74 } ] }
+```
+
+`validate` and `build` then check that every internal boundary lands on a
+picture cut (scene start, or the middle of a crossfade) within `tolerance`
+(default 0.05s) and that the piece covers the span it was asked to cover. A
+failure names the cue, the measured offset and the expected cut. `exact` never
+loops or pads: if the music is short, lengthen it or use `fit: loop`.
+
 ## Profiles: registering a tool
 
 A Profile is a small YAML document (`kind: Profile`) that declares what a tool
@@ -150,6 +189,9 @@ tasks:
     invocation: ["scorekit", "build", "${params.scene}", "-o", "${produces.audio}"]
 ```
 
+- A ready-made Profile for scorekit ships in the filmkit repository
+  (`profiles/scorekit.yaml`); copy it into your project and reference it as
+  `./profiles/scorekit.yaml`.
 - `runtime.type: cli` + `invocation` → `filmkit run <id>` executes it.
   Anything else (`skill`, `mcp`, `http`) is yours to execute; `plan` says
   `executor: agent`.
@@ -182,6 +224,7 @@ tasks:
 | `filmkit build [--draft] [--dry-run]` | Normalize, compose, verify; `--dry-run` only writes `build/compose.filtergraph.txt` |
 | `filmkit status` | Observe produces, write lock, report |
 | `filmkit doctor` | Environment + Profile requirements |
+| `filmkit import hyperstory <schema.json> [--out <path>] [--force]` | Convert a Hyperstory schema into a new filmkit.yaml |
 
 Global options: `--film <path>` (default `./filmkit.yaml`), `--json`.
 Exit codes: `0` ok · `1` io · `2` invalid input · `3` missing dependency · `4` external tool failure.

@@ -1,0 +1,49 @@
+# Ready-to-use Profile for scorekit (https://github.com/talkincode/scorekit).
+#
+# Copy it next to your film and reference it:
+#   profiles:
+#     - ref: ./profiles/scorekit.yaml
+#   assets:
+#     music:
+#       kind: audio
+#       impl:
+#         profile: scorekit
+#         task: build
+#         params: { scene: ./music/theme.yaml }   # a scorekit scene, referenced never inlined
+#       produces: { audio: ./build/music/theme.ogg }
+#
+# scorekit is optional: without it, `filmkit doctor` reports the gap and
+# everything that does not use this Profile keeps working.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: scorekit
+  version: ">=0.7"
+  description: Compile a scorekit scene DSL file into music (optionally with stems).
+runtime:
+  type: cli
+  binary: scorekit
+  healthcheck: ["scorekit", "--version"]
+  exitCodes: { "0": ok, "1": io, "2": invalid-input, "3": missing-dependency, "4": tool-failure }
+capabilities:
+  produces: [audio]
+tasks:
+  build:
+    description: scorekit build <scene.yaml> -o <audio>
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [scene]
+      properties:
+        scene:
+          type: string
+          description: Path to a scorekit scene YAML (the tool's own document, never inlined here).
+        renderer:
+          enum: [fluidsynth, timidity, sfizz]
+          description: Synthesizer backend; sfizz additionally needs an orchestration profile.
+        stems:
+          type: boolean
+          description: Also write per-track stems next to the output.
+    # Content validation is delegated to the tool; filmkit only checks that the task ran.
+    validate: ["scorekit", "--json", "validate", "${params.scene}"]
+    invocation: ["scorekit", "build", "${params.scene}", "-o", "${produces.audio}"]

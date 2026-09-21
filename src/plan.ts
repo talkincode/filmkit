@@ -2,6 +2,7 @@
 
 import { inputPath } from "./film.ts";
 import type { Analysis } from "./project.ts";
+import type { MissingFile } from "./project.ts";
 import type { Intent, NodeStatus, RuntimeType } from "./types.ts";
 
 export interface PlanNode {
@@ -22,6 +23,8 @@ export interface Plan {
   film: string;
   timeline: { total: number; scenes: { id: string; start: number; end: number; duration: number; estimated: boolean }[] };
   nodes: PlanNode[];
+  /** Files the film references that are not in place yet; nobody's `impl` produces them. */
+  missingFiles: MissingFile[];
 }
 
 export function makePlan(a: Analysis): Plan {
@@ -56,6 +59,7 @@ export function makePlan(a: Analysis): Plan {
       scenes: a.timeline.scenes.map((p) => ({ id: p.scene.id, start: p.start, end: p.end, duration: p.duration, estimated: p.estimated })),
     },
     nodes,
+    missingFiles: a.missingFiles,
   };
 }
 
@@ -73,7 +77,13 @@ export function formatPlan(plan: Plan): string {
   for (const s of plan.timeline.scenes) {
     lines.push(`  ${s.id.padEnd(16)} ${fmt(s.start)} -> ${fmt(s.end)}  (${fmt(s.duration)}s${s.estimated ? ", estimated" : ""})`);
   }
-  if (plan.nodes.length === 0) {
+  if (plan.missingFiles.length) {
+    lines.push(`files to place (${plan.missingFiles.length}):`);
+    for (const m of plan.missingFiles) {
+      lines.push(`- ${m.path}  (${m.field}${m.usedBy.length ? `; needed by ${m.usedBy.join(", ")}` : "; unused"})`);
+    }
+  }
+  if (plan.nodes.length === 0 && plan.missingFiles.length === 0) {
     lines.push("nothing to do: every node is ready");
     return lines.join("\n");
   }

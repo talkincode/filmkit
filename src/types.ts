@@ -4,13 +4,13 @@
 
 export const API_VERSION = "filmkit/v1alpha1";
 
-export type ProduceType = "video" | "image" | "audio" | "subtitle" | "cues" | "file";
+export type ProduceType = "video" | "image" | "audio" | "subtitle" | "file";
 export type AssetKind = "image" | "video" | "audio" | "subtitle" | "font" | "file";
 export type RuntimeType = "none" | "cli" | "skill" | "mcp" | "http";
 export type ExitClass = "ok" | "io" | "invalid-input" | "missing-dependency" | "tool-failure";
 
 /** Order used to pick a node's primary produce (spec §1.7.3). */
-export const PRODUCE_PRIORITY: ProduceType[] = ["video", "image", "audio", "subtitle", "cues", "file"];
+export const PRODUCE_PRIORITY: ProduceType[] = ["video", "image", "audio", "subtitle", "file"];
 
 export type Produces = Partial<Record<ProduceType, string>>;
 
@@ -94,6 +94,14 @@ export interface AudioTrack {
   from: number;
   to: number | "end";
   fit: "loop" | "trim" | "exact";
+  /**
+   * Path of a `filmkit/cues-v1` file (segment boundaries of the audio). Required
+   * for `fit: exact`, ignored otherwise. filmkit never derives it from a tool's
+   * own timing document; the agent writes it.
+   */
+  cues?: string;
+  /** Alignment tolerance for `fit: exact`, seconds (default 0.05). */
+  tolerance?: number;
   volume: number;
   fadeIn: number;
   fadeOut: number;

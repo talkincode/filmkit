@@ -6,14 +6,15 @@ import { build } from "./build/index.ts";
 import { doctor, formatDoctor } from "./doctor.ts";
 import { FilmkitError, formatDetail } from "./errors.ts";
 import { loadFilm } from "./film.ts";
+import { importHyperstory } from "./import.ts";
 import { init } from "./init.ts";
 import { formatPlan, makePlan } from "./plan.ts";
-import { analyze } from "./project.ts";
+import { analyze, requireFilesPlaced } from "./project.ts";
 import { runNode } from "./run.ts";
 import { SCHEMAS } from "./schema.ts";
 import { formatStatus, writeStatus } from "./status.ts";
 
-export const COMMANDS = ["init", "schema", "validate", "plan", "run", "build", "status", "doctor", "help"] as const;
+export const COMMANDS = ["init", "schema", "validate", "plan", "run", "build", "status", "doctor", "import", "help"] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export const HELP = `filmkit — agent-oriented video orchestration compiler
@@ -22,8 +23,8 @@ Usage: filmkit <command> [options]
 
 Commands:
   init [dir]            Create a skeleton project (refuses a non-empty directory)
-  schema [--profile|--lock]
-                        Print the JSON Schema of filmkit.yaml (or Profile / Lock)
+  schema [--profile|--lock|--cues]
+                        Print the JSON Schema of filmkit.yaml (or Profile / Lock / Cues)
   validate              Schema, references, timeline and Profile paramsSchema checks
   plan                  Work order: nodes that are missing, stale or blocked, in order
   run <id>              Execute one node whose Profile is cli with an invocation
@@ -31,6 +32,8 @@ Commands:
                         Normalize every produce, compose along the timeline, verify output
   status                Observe produces, write filmkit.lock.yaml, report readiness
   doctor                Check ffmpeg/ffprobe and every referenced Profile's requirements
+  import hyperstory <schema.json> [--out filmkit.yaml] [--force]
+                        Convert a Hyperstory Video Composition Schema into filmkit.yaml
   help                  Show this help
 
 Options:
@@ -62,6 +65,9 @@ export function main(argv: string[]): CliResult {
         "no-delegate": { type: "boolean", default: false },
         profile: { type: "boolean", default: false },
         lock: { type: "boolean", default: false },
+        cues: { type: "boolean", default: false },
+        out: { type: "string" },
+        force: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
     });
@@ -97,6 +103,9 @@ interface Values {
   "no-delegate": boolean;
   profile: boolean;
   lock: boolean;
+  cues: boolean;
+  out?: string;
+  force: boolean;
 }
 
 function dispatch(command: Command, rest: string[], v: Values): { json: unknown; text: string; exitCode?: number } {
@@ -106,12 +115,27 @@ function dispatch(command: Command, rest: string[], v: Values): { json: unknown;
       return { json: r, text: `initialized ${r.dir}\n${r.files.map((f) => `  ${f}`).join("\n")}\nnext: filmkit validate && filmkit plan` };
     }
     case "schema": {
-      const which = v.profile ? "profile" : v.lock ? "lock" : "film";
+      const which = v.profile ? "profile" : v.lock ? "lock" : v.cues ? "cues" : "film";
       const s = SCHEMAS[which];
       return { json: s, text: JSON.stringify(s, null, 2) };
     }
+    case "import": {
+      const kind = rest[0];
+      const source = rest[1];
+      if (!kind || !source) throw new FilmkitError({ code: "invalid-input", message: "usage: filmkit import hyperstory <schema.json> [--out filmkit.yaml]" });
+      if (kind !== "hyperstory") throw new FilmkitError({ code: "invalid-input", message: `unknown import kind "${kind}"`, hint: "supported: hyperstory" });
+      const out = v.out ?? "./filmkit.yaml";
+      const r = importHyperstory(source, out, { force: v.force });
+      const lines = [
+        `imported ${source} -> ${r.out} (${r.scenes} scenes, ${r.assets} assets)`,
+        ...r.warnings.map((w) => `warning: ${w}`),
+        ...(r.missingFiles.length ? [`files referenced but not in place yet (${r.missingFiles.length}): ${r.missingFiles.join(", ")}`, "next: filmkit plan"] : []),
+      ];
+      return { json: r, text: lines.join("\n") };
+    }
     case "validate": {
       const a = analyze(v.film, { delegate: !v["no-delegate"] });
+      if (a.missingFiles.length) throw new FilmkitError(requireFilesPlaced(a));
       const estimated = a.timeline.scenes.filter((p) => p.estimated).length;
       return {
         json: { ok: true, film: v.film, scenes: a.loaded.film.scenes.length, nodes: a.order.length, timeline: { total: a.timeline.total, estimatedScenes: estimated } },

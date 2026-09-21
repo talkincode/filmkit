@@ -6,6 +6,7 @@ import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.
 import filmSchema from "./schema/film.schema.json" with { type: "json" };
 import profileSchema from "./schema/profile.schema.json" with { type: "json" };
 import lockSchema from "./schema/lock.schema.json" with { type: "json" };
+import cuesSchema from "./schema/cues.schema.json" with { type: "json" };
 import { FilmkitError, invalid, type ErrorDetail } from "./errors.ts";
 import { formatFieldPath, instancePathToSegments, positionOf, type PathSegment, type YamlSource } from "./yaml.ts";
 
@@ -13,6 +14,7 @@ export const SCHEMAS = {
   film: filmSchema,
   profile: profileSchema,
   lock: lockSchema,
+  cues: cuesSchema,
 } as const;
 
 export type SchemaKind = keyof typeof SCHEMAS;

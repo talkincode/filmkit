@@ -74,6 +74,6 @@
   },
   "$defs": {
     "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-    "produceType": { "enum": ["video", "image", "audio", "subtitle", "cues", "file"] }
+    "produceType": { "enum": ["video", "image", "audio", "subtitle", "file"] }
   }
 }

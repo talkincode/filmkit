@@ -20,7 +20,16 @@ bun ../bin/filmkit.ts build         # ffmpeg 合成并用 ffprobe 校验 output
 bun ../bin/filmkit.ts status
 ```
 
+已有 Hyperstory 项目时可以直接转换：
+
+```bash
+bun bin/filmkit.ts import hyperstory ./schema.json --out filmkit.yaml
+bun bin/filmkit.ts plan          # 列出还缺的文件与需要产出的场景
+```
+
 唯一硬性依赖是 `ffmpeg` / `ffprobe`（`filmkit doctor` 会检查）。Agent 使用说明在 [skills/filmkit/SKILL.md](skills/filmkit/SKILL.md)。
+
+随仓库分发的 Profile：`profiles/scorekit.yaml`（音乐生成，可选）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。
 
 ## 开发
 

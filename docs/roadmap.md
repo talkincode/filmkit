@@ -99,8 +99,11 @@ timeline:
 - **doctor**：ffmpeg/ffprobe 与所需 filter；按 Profile 探测二进制、环境变量（仅报告是否设置）、`healthcheck`（`src/doctor.ts`）。
 - **init**：可直接 `validate` → `run bgm` → `build` 出片的骨架（`src/init.ts`）。
 - **filmkit skill**：`skills/filmkit/SKILL.md`；`scripts/check-skill-cli.ts` 守护其与 CLI `--help` 一致。
+- **音乐卡点（`fit: exact`）**：`filmkit/cues-v1` 中立段落文件（`src/cues.ts`）+ 切点对齐校验（转场取中点，容差默认 0.05s，可按轨覆盖）；`validate` 与 `build` 都执行。切点定义与规则见 `docs/spec.md` §7。
+- **`import hyperstory`**：Video Composition Schema → 新 filmkit.yaml（`src/import.ts`）；无法表达的字段写入 `metadata.annotations` 并逐条 warning；默认拒绝覆盖已存在的 film。
+- **scorekit 集成**：随仓库分发 `profiles/scorekit.yaml`（`cli` 类，`validate` 委托 `scorekit --json validate`，`invocation` 调 `scorekit build`）。真实 scorekit 的端到端测试见 `tests/scorekit.test.ts`（未安装时跳过）。
 
-尚未实现（协议已保留字段，`validate` 明确拒绝）：`fit: exact` 音乐卡点校验、`produces.cues`、`tracks[].stems`、字幕 `burn`、`profiles[].source`、`import hyperstory`、`mcp`。
+尚未实现（协议已保留字段，`validate` 明确拒绝）：`tracks[].stems`、字幕 `mode: burn`、`profiles[].source`、`filmkit mcp`。
 
 ## 功能清单（目标能力）
 
@@ -179,15 +182,12 @@ timeline:
 | 6. plan | 中 | ✅ 拓扑序、executor、estimated | ✅ params 变化只标记该节点及下游 stale/blocked | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "plan" 三例 |
 | 7. run | 高 | ✅ 产物落地、lock 记录 | ✅ 非 cli 节点 / 未知 id / 命令成功但未产出 | 不适用 | ✅ 工具失败：删除新建产物，lock 逐字不变 | `tests/pipeline.test.ts` "run" 五例 |
 | 8. build | 高 | ✅ 混搭输入归一化 + crossfade + bgm loop + overlay + srt 合并，ffprobe 全参数断言 | ✅ 节点未就绪拒绝 / ffprobe 报规格不符拒绝落位 | 不适用 | ✅ ffmpeg 中途失败：目标与临时文件均不存在，lock 不变 | `tests/pipeline.test.ts` "build" 八例（含确定性：filtergraph 两次逐字相同） |
-| 9. 音乐卡点校验（fit: exact） | 高 | ❌ 缺口（v1alpha1 保留，validate 拒绝） | ✅ 使用即报 reserved | 不适用 | 不适用 | `tests/validate.test.ts` "reserved features are refused explicitly" |
+| 9. 音乐卡点校验（fit: exact） | 高 | ✅ 对齐通过并出片；真实 scorekit 渲染 → cues → 合成 | ✅ 边界超差 / 音乐过短 / 文件缺失 / 版本错 / 重叠 / 顺序错 / `cues` 与 `fit` 不匹配 | 不适用 | 不适用（校验不写状态） | `tests/cues.test.ts` 全部；`tests/scorekit.test.ts` "scene -> ogg -> cues -> composed film"（真实工具）与三个 stub 用例 |
 | 10. status / lock 账本 | 高 | ✅ 写 lock、幂等、过期检测 | ✅ 损坏 lock 报错而非静默替换 | 不适用 | ✅ 原子写（临时文件 + rename，`src/lock.ts`）；损坏 lock 不被覆盖 | `tests/pipeline.test.ts` "status" 三例 |
 | 11. doctor | 低 | ✅ | ✅ 缺二进制 / 缺 env → 退出 3，且不打印 env 值 | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "doctor" 两例 |
 | 12. schema 导出 | 低 | ✅ 三份 Schema 可被 Draft 2020-12 校验器编译 | 不适用（无失败分支） | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "schema exports load" |
 | 13. init | 中 | ✅ 骨架直接 validate/run/build 通过 | ✅ 非空目录拒绝 | 不适用 | ✅ 拒绝时不写任何文件 | `tests/pipeline.test.ts` "init + schema" |
-| 14. import hyperstory | 中 | ❌ 缺口（未实现） | ❌ 缺口 | 不适用 | ❌ 缺口 | — |
+| 14. import hyperstory | 中 | ✅ schema → filmkit.yaml → plan → 补齐文件 → validate → build 出片 | ✅ 空 scenes / 无时长 / 无图无视频 / 未知 kind / 文件不存在 / 拒绝覆盖 | 不适用 | ✅ 目标已存在时拒绝写入且不修改原文件；`--force` 才覆盖 | `tests/import.test.ts` 五例 |
 | 15. filmkit skill 与 CLI 一致性 | 低 | ✅ `bun run check:skill` | 不适用 | 不适用 | 不适用（文档） | `scripts/check-skill-cli.ts` |
 
-对剩余缺口的最低期望：
-
-- **9**：实现 `produces.cues`（`filmkit/cues-v1` JSON）与 `fit: exact`，build 校验每个段落边界与场景切点偏差 ≤ 容差，超差报错并指出段落与场景；需一组通过与一组超差的 E2E。
-- **14**：hyperstory 示例 schema 导入后通过 `validate`，对 golden 快照相等；字段缺失时报 `2` 并指出源字段。
+本矩阵当前没有 `❌ 缺口`：15 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。

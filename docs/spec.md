@@ -2,7 +2,9 @@
 
 本文档是 `filmkit.yaml`（`kind: Film`）、Profile 文档（`kind: Profile`）、账本（`kind: Lock`）以及 CLI 输入输出契约的字段级规范。它是 JSON Schema（`filmkit schema`）与实现的直接依据；两者冲突时以本文档为准并修正实现。
 
-约定：**MUST / MUST NOT / SHOULD** 按 RFC 2119 理解。标注 **保留** 的字段或取值已进入协议但本版本不实现——Schema 接受它们并在 `validate` 阶段以 `invalid-input` 拒绝，错误信息注明“v1alpha1 未实现”。
+约定：**MUST / MUST NOT / SHOULD** 按 RFC 2119 理解。标注 **保留** 的字段或取值已进入协议但本版本不实现——Schema 接受它们并在 `validate` 阶段以 `invalid-input` 拒绝。
+
+v1alpha1 当前保留未实现：`tracks[].stems`、字幕 `mode: burn`、`profiles[].source`。
 
 ## 0. 通用规则
 
@@ -158,16 +160,15 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 
 #### 1.7.3 `produces`
 
-`map<产物类型, 相对路径>`，产物类型 ∈ `video | image | audio | subtitle | cues | file`。至少一项。规则：
+`map<产物类型, 相对路径>`，产物类型 ∈ `video | image | audio | subtitle | file`。至少一项。规则：
 
 - `video` 与 `image` 互斥。
 - `subtitle` MUST 为 `.srt`。
-- `cues` **保留**：`filmkit/cues-v1` JSON，供 `fit: exact` 卡点校验。
 - 路径 MUST 位于项目目录内（不得以 `../` 逃出）。
 - 两个节点的 `produces` MUST NOT 指向同一路径。
 - 所引用 task 若声明了 `produces`（§3.4），场景 `produces` MUST 覆盖其中每一项。
 
-**主产物**：`video` > `image` > `audio` > `subtitle` > `cues` > `file`，第一个存在者。`${inputs.<id>}` 与 lock 中的“主哈希”均指主产物。
+**主产物**：`video` > `image` > `audio` > `subtitle` > `file`，第一个存在者。`${inputs.<id>}` 与 lock 中的“主哈希”均指主产物。
 
 ### 1.8 `timeline`
 
@@ -195,7 +196,9 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `asset` | 资产名 | 必填 | `kind: audio` 的现成或生成型资产 |
-| `fit` | `loop` \| `trim` \| `exact` | `loop` | `loop`：循环铺满 `[from,to)`；`trim`：只播一遍，短则静音；`exact` **保留** |
+| `fit` | `loop` \| `trim` \| `exact` | `loop` | `loop`：循环铺满 `[from,to)`；`trim`：只播一遍，短则静音；`exact`：不循环不补齐，按 `cues` 校验段落对齐（§7） |
+| `cues` | string | — | `filmkit/cues-v1` 文件路径；`fit: exact` 必填，其它取值出现即报错 |
+| `tolerance` | number ≥ 0 | `0.05` | `fit: exact` 的对齐容差，秒 |
 | `volume` | number 0..4 | `1` | |
 | `fadeIn` | number ≥ 0 | `0` | |
 | `fadeOut` | number ≥ 0 | `0` | 在 `to` 处结束 |
@@ -403,6 +406,7 @@ build:                         # 仅 build 成功后
 | `build [--draft]` | 同上 | 中间片段, 成片, filtergraph, srt, lock | |
 | `status` | 同上 | lock | |
 | `doctor` | profiles | — | |
+| `import hyperstory <schema.json> [--out <path>] [--force]` | hyperstory schema | 新的 filmkit.yaml | 单向导入，见 §8 |
 
 ### 6.1 `plan` 输出
 
@@ -410,6 +414,7 @@ build:                         # 仅 build 成功后
 {
   "film": "filmkit.yaml",
   "timeline": { "total": 31.2, "scenes": [ { "id": "s1", "start": 0, "end": 8, "duration": 8, "estimated": false } ] },
+  "missingFiles": [ { "path": "./assets/bgm.mp3", "field": "assets.bgm.uri", "usedBy": ["track:music"] } ],
   "nodes": [
     {
       "id": "s2", "kind": "scene", "status": "missing",
@@ -426,6 +431,8 @@ build:                         # 仅 build 成功后
 
 `nodes` 按拓扑序，只含 `status ≠ ready` 的节点。`executor: "filmkit run"` 当且仅当 Profile 为 `cli` 且 task 有 `invocation`。
 
+`missingFiles` 是 film 引用但尚未就位的文件（现成资产的 `uri`、`./` 开头的 `impl.params` 值、`fit: exact` 的 `cues`）：`plan` 把它们列为待办而不阻塞；`validate` 与 `build` 把它们当作 `invalid-input` 错误。
+
 ### 6.2 `build` 产物
 
 - `build/clips/<id>.<ext>` 中间片段
@@ -435,7 +442,45 @@ build:                         # 仅 build 成功后
 
 成片先写入 `build/.tmp/` 再重命名到目标；ffprobe 校验失败时目标不落位，退出 `tool-failure`，lock 不写。
 
-## 7. 稳定性
+## 7. 音频段落（`filmkit/cues-v1`）与 `fit: exact` 卡点
+
+`cues` 文件描述一个音频文件自身的段落边界，单位秒，相对该文件起点。它是**中立格式**：filmkit 从不读取任何工具自带的时序文档（scorekit `meta.json`、HyperFrames 工程等），由产出方（通常是 Agent 读工具输出后）写出。
+
+```json
+{ "version": "filmkit/cues-v1",
+  "cues": [ { "id": "open", "start": 0, "end": 24.87 },
+            { "id": "body", "start": 24.87, "end": 49.74 } ] }
+```
+
+结构规则：`version` MUST 为 `filmkit/cues-v1`；`cues` 非空；每项 `0 ≤ start < end`；按 `start` 非降序且不重叠；`id`/`label` 可选。
+
+`fit: exact` 的校验（`validate` 与 `build` 都执行，因为 build 不能依赖 validate 刚跑过）：
+
+1. 场景时长必须全部已知（存在 `estimated` 时跳过——切点还是估计值，校验没有意义）。
+2. **切点**定义为：首个场景的 `0`、其后每个场景的 `start + 转场时长/2`（`cut` 为 0）、以及全片总长。
+3. 除第一段外，每条 cue 的 `from + cue.start` MUST 落在某个切点的 ±`tolerance` 内（默认 `0.05` 秒；超差报错给出偏移量与期望值）。
+4. 音乐 MUST 覆盖所声明的区间：`from + 最后一条 cue.end ≥ from + span − tolerance`。`exact` 既不循环也不补静音——不够长是错误，不是静音填充。
+
+语义：`fit: exact` 用于"音乐段落边界对齐画面剪辑点"。素材本身仍由 `build` 归一化（重采样、声道、按 `[from, to)` 裁切）。
+
+## 8. `import hyperstory`
+
+`filmkit import hyperstory <schema.json>` 单向转换 Hyperstory 的 Video Composition Schema（见 `skills/hyperstory/references/video-composition-schema.md`），写出新的 `filmkit.yaml`：
+
+| 输入 | 输出 |
+| --- | --- |
+| `title` / `render` / `defaults.imageFit` | `metadata.title` / `output.video` / `output.fit` |
+| `cover` + `coverDuration` | 首个场景（`durationPolicy: exact`，`produces.image`） |
+| `scenes[].image` / `video` / `voice` / `subtitle` | 对应 `produces`（`impl: filmkit/static`） |
+| `scenes[].duration`（+ 有旁白） | `duration` 与 `durationPolicy: min`；无旁白且无视频时 `exact`；有视频无旁白时 `auto` |
+| `scenes[].description` / `action` / `caption` / `voiceText` | `intent` |
+| `audio.bgm` / `audio.voiceMap` | `assets` + 一条 `fit: loop` 音频轨 |
+| `defaults.bgmVolume` / `bgmFadeOutDuration` | 该轨的 `volume` / `fadeOut` |
+| 存在字幕 | 一条 `sidecar` 字幕轨 |
+
+无法表达的字段（视觉/字幕/运动/转场风格、`videoPrompt`、`videoInstruct`、`voiceSpeed`、`videoAudio.volume`、计划总时长）写入 `metadata.annotations` 并在导入报告中逐条 warning；**不猜测任何工具的参数字段**。目标文件已存在时拒绝写入，除非 `--force`。导入结果 MUST 立即能被 `plan` 使用（引用文件缺失只出现在 `missingFiles`）。
+
+## 9. 稳定性
 
 - `v1alpha1` 期间字段可变；进入 `v1` 后只做加法。
 - 标注 **保留** 的字段在被实现前不改变含义。

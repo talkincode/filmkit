@@ -125,7 +125,20 @@ function trackDefaults(raw: Track): Track {
   switch (t.kind) {
     case "audio": {
       const a = t as Partial<AudioTrack> & { id: string; asset: string };
-      return { id: a.id, kind: "audio", asset: a.asset, fit: a.fit ?? "loop", volume: a.volume ?? 1, fadeIn: a.fadeIn ?? 0, fadeOut: a.fadeOut ?? 0, from: a.from ?? 0, to: a.to ?? "end", ...(a.stems !== undefined ? { stems: a.stems } : {}) };
+      return {
+        id: a.id,
+        kind: "audio",
+        asset: a.asset,
+        fit: a.fit ?? "loop",
+        volume: a.volume ?? 1,
+        fadeIn: a.fadeIn ?? 0,
+        fadeOut: a.fadeOut ?? 0,
+        from: a.from ?? 0,
+        to: a.to ?? "end",
+        ...(a.cues !== undefined ? { cues: a.cues } : {}),
+        ...(a.tolerance !== undefined ? { tolerance: a.tolerance } : {}),
+        ...(a.stems !== undefined ? { stems: a.stems } : {}),
+      };
     }
     case "overlay": {
       const o = t as Partial<OverlayTrack> & { id: string; asset: string };
@@ -231,7 +244,6 @@ function checkStructure(loaded: LoadedFilm, errors: ErrorCollector): void {
     checkImpl(loaded, node, errors);
     for (const [type, p] of Object.entries(node.produces) as [ProduceType, string][]) {
       const field = [...node.field, "produces", type];
-      if (type === "cues") add(field, "produces.cues is reserved and not implemented in v1alpha1");
       if (!insideProject(dir, p)) add(field, "path escapes the project directory");
       const key = normalize(p);
       const prev = producePaths.get(key);
@@ -287,9 +299,8 @@ function checkStructure(loaded: LoadedFilm, errors: ErrorCollector): void {
       if (t.mode === "burn") add(field("mode"), `subtitle mode "burn" is reserved and not implemented in v1alpha1`);
       return;
     }
-    if (t.kind === "audio") {
-      if (t.fit === "exact") add(field("fit"), `fit "exact" is reserved and not implemented in v1alpha1`);
-      if (t.stems !== undefined) add(field("stems"), "stems is reserved and not implemented in v1alpha1");
+    if (t.kind === "audio" && t.stems !== undefined) {
+      add(field("stems"), "stems is reserved and not implemented in v1alpha1");
     }
     const asset = film.assets[t.asset];
     const wantKind = t.kind === "audio" ? "audio" : "image";
@@ -297,6 +308,16 @@ function checkStructure(loaded: LoadedFilm, errors: ErrorCollector): void {
     else {
       if (asset.kind !== wantKind) add(field("asset"), `asset "${t.asset}" is ${asset.kind}, track needs ${wantKind}`);
       if (!isGeneratedAsset(asset) && isUrl(asset.uri)) add(field("asset"), "URL assets cannot be used by tracks; build does not download");
+      // fit: exact is a contract about the music's segment boundaries (spec §1.8.2).
+      if (t.kind === "audio" && t.fit === "exact" && !t.cues) {
+        add(field("fit"), `fit "exact" requires cues: a filmkit/cues-v1 file with the piece's segment boundaries`, "write it from the tool's own timing data, or use fit: loop");
+      }
+      if (t.kind === "audio" && t.fit !== "exact" && t.cues) {
+        add(field("cues"), `cues is only read when fit is "exact"`);
+      }
+      if (t.kind === "audio" && t.cues && !insideProject(dir, t.cues)) {
+        add(field("cues"), "path escapes the project directory");
+      }
     }
     if (typeof t.to === "number" && t.to <= t.from) add(field("to"), "to must be greater than from");
   });

@@ -1,6 +1,6 @@
 // `filmkit status`: observe every node, write the lock, report intent vs. reality.
 
-import type { Analysis } from "./project.ts";
+import type { Analysis, MissingFile } from "./project.ts";
 import { emptyLock, writeLock } from "./lock.ts";
 import { toLockNode } from "./state.ts";
 import type { Lock, NodeStatus } from "./types.ts";
@@ -8,6 +8,8 @@ import type { Lock, NodeStatus } from "./types.ts";
 export interface StatusReport {
   film: string;
   nodes: { id: string; kind: "scene" | "asset"; status: NodeStatus; produces: Record<string, { path: string; exists: boolean }> }[];
+  /** Referenced files that are not in place yet. */
+  missingFiles: MissingFile[];
   timeline: { total: number; complete: boolean };
   build?: Lock["build"] & { outputExists: boolean; upToDate: boolean };
 }
@@ -40,12 +42,17 @@ export function writeStatus(a: Analysis): StatusReport {
   const report: StatusReport = {
     film: a.loaded.path,
     nodes,
+    missingFiles: a.missingFiles,
     timeline: { total: a.timeline.total, complete: a.timeline.scenes.every((p) => !p.estimated) && nodes.every((n) => n.status === "ready") },
   };
   if (lock.build) {
     const outAbs = `${a.loaded.dir}/${lock.build.output.path}`;
     const exists = Bun.file(outAbs).size > 0;
-    report.build = { ...lock.build, outputExists: exists, upToDate: exists && lock.build.filmSha256 === a.filmSha256 && nodes.every((n) => n.status === "ready") };
+    report.build = {
+      ...lock.build,
+      outputExists: exists,
+      upToDate: exists && lock.build.filmSha256 === a.filmSha256 && nodes.every((n) => n.status === "ready") && a.missingFiles.length === 0,
+    };
   }
   return report;
 }
@@ -56,6 +63,7 @@ export function formatStatus(r: StatusReport): string {
     const marks = Object.entries(n.produces).map(([t, p]) => `${p.exists ? "✓" : "✗"} ${t}=${p.path}`).join("  ");
     lines.push(`- ${n.id.padEnd(16)} ${n.status.padEnd(8)} ${marks}`);
   }
+  for (const m of r.missingFiles) lines.push(`- missing file      ${m.path}${m.usedBy.length ? `  (needed by ${m.usedBy.join(", ")})` : ""}`);
   if (r.build) lines.push(`build: ${r.build.output.path} ${r.build.outputExists ? (r.build.upToDate ? "(up to date)" : "(outdated)") : "(missing)"}${r.build.draft ? " [draft]" : ""}`);
   else lines.push("build: not built yet");
   return lines.join("\n");

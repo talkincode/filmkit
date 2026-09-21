@@ -153,10 +153,18 @@ describe("validate — references and semantics", () => {
     expectInvalid(film({ scenes: twoScenes.replace("id: s2\n", "id: s2\n    start: 1\n") }), "scenes[1].start", /earlier than the derived/);
   });
 
+  test("fit: exact requires a cues file; cues without exact fit is refused", () => {
+    const withTrack = (track: string) =>
+      film({ scenes: twoScenes, assets: "  bgm: { kind: audio, uri: ./a.png }", tracks: `    - ${track}` });
+    expectInvalid(withTrack("{ id: m, kind: audio, asset: bgm, fit: exact }"), "timeline.tracks[0].fit", /requires cues/);
+    expectInvalid(withTrack("{ id: m, kind: audio, asset: bgm, fit: loop, cues: ./x.json }"), "timeline.tracks[0].cues", /only read when fit is "exact"/);
+    expectInvalid(withTrack("{ id: m, kind: audio, asset: bgm, fit: exact, cues: ../outside.json }"), "timeline.tracks[0].cues", /escapes the project/);
+  });
+
   test("reserved features are refused explicitly", () => {
     expectInvalid(
-      film({ scenes: twoScenes, assets: "  bgm: { kind: audio, uri: ./a.png }", tracks: "    - { id: m, kind: audio, asset: bgm, fit: exact }" }),
-      "timeline.tracks[0].fit",
+      film({ scenes: twoScenes, assets: "  bgm: { kind: audio, uri: ./a.png }", tracks: "    - { id: m, kind: audio, asset: bgm, stems: {} }" }),
+      "timeline.tracks[0].stems",
       /reserved/,
     );
     expectInvalid(film({ scenes: twoScenes, tracks: "    - { id: subs, kind: subtitles, source: scenes, mode: burn }" }), "timeline.tracks[0].mode", /reserved/);
