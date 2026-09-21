@@ -12,7 +12,9 @@ export interface Project {
   write(rel: string, text: string): void;
   path(rel: string): string;
   cli(...args: string[]): CliResult;
-  json<T = unknown>(...args: string[]): { exitCode: number; out: T | undefined; err: { errors: { code: string; message: string; field?: string; line?: number }[] } | undefined };
+  json<T = unknown>(
+    ...args: string[]
+  ): { exitCode: number; out: T | undefined; err: { errors: { code: string; message: string; field?: string; line?: number; hint?: string }[] } | undefined };
   cleanup(): void;
 }
 

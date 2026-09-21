@@ -170,10 +170,13 @@ function delegateValidation(loaded: LoadedFilm, order: Node[], errors: ErrorColl
       if (err instanceof FilmkitError) { err.errors.forEach((e) => errors.add(e)); continue; }
       throw err;
     }
+    // Classify with the Profile's own exit mapping: a tool that says "invalid
+    // input" (scorekit 2) makes the film invalid, while "I cannot run" (missing
+    // credential, imagine 1) is a tool failure, not a problem with the film.
     const cls = classifyExit(r.status, prof.profile.runtime.exitCodes);
     if (cls !== "ok") {
       const detail = execFailure(r, cls, `${node.id}: ${prof.profile.metadata.name} validate`);
-      errors.add(at({ ...detail, code: "invalid-input", field }, loaded.src));
+      errors.add(at({ ...detail, field }, loaded.src));
     }
   }
 }

@@ -1,0 +1,155 @@
+# Ready-to-use Profile for imagine (https://github.com/talkincode/imagine),
+# a universal image-generation CLI.
+#
+# Copy it next to your film and reference it:
+#   profiles:
+#     - ref: ./profiles/imagine.yaml
+#   scenes:
+#     - id: s1
+#       duration: 6
+#       impl:
+#         profile: imagine
+#         task: generate
+#         params:
+#           model: MAI-Image-2.6          # from `imagine models` (only needed when several are configured)
+#           prompt: 深夜律所走廊，一束光落在文件柜上，纪录片风格
+#           size: 1024x1536
+#       produces: { image: ./build/s1.png }
+#
+# Credentials are imagine's own business: it reads ~/.imagine/config.toml (or
+# IMAGINE_* / AZURE_OPENAI_APIKEY from the environment). filmkit never holds,
+# stores or prints a key — `doctor` only reports whether a *ready model* exists.
+#
+# Two properties worth knowing before using this Profile:
+#   * Generated pixels are not reproducible. Two runs with the same params give
+#     different images, so the lock records the bytes you actually got. filmkit's
+#     determinism promise covers the compose stage (filtergraph), not the model.
+#   * `validate` runs the task with `--dry-run`, which prints the request body
+#     without calling the API: bad models and bad flags are caught for free.
+#     Variant exploration (`-n 4`, model A/B) is the agent's job, outside
+#     filmkit: pick a winner, then let the film reference that one file.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: imagine
+  version: ">=0.2"
+  description: Generate one image from a prompt with the imagine CLI, or render a text layer to a transparent PNG.
+runtime:
+  type: cli
+  binary: imagine
+  # `imagine models --json` exits 0 even when nothing is configured, so the exit
+  # code alone cannot say whether this tool is usable — hence the expectation.
+  healthcheck: ["imagine", "models", "--json"]
+  healthcheckExpect: { path: ready, equals: true }
+  exitCodes: { "0": ok, "1": tool-failure, "2": invalid-input }
+capabilities:
+  produces: [image]
+tasks:
+  generate:
+    description: imagine generate — one prompt, one image file.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+        model:
+          type: string
+          description: Model name from `imagine models`. Omit only when exactly one model is configured.
+        size:
+          type: string
+          description: 'Provider size string, e.g. 1024x1024 or 1024x1536 (openai_image backends).'
+        width:
+          type: integer
+          minimum: 1
+          description: Width in pixels, for azure_flux-style backends.
+        height:
+          type: integer
+          minimum: 1
+          description: Height in pixels, for azure_flux-style backends.
+        format:
+          enum: [png, jpeg]
+        quality:
+          enum: [low, medium, high, auto]
+        compression:
+          type: integer
+          minimum: 0
+          maximum: 100
+        seed:
+          type: integer
+          description: Seed where the backend supports it. Same seed is not a reproducibility guarantee.
+    produces: [image]
+    # Free pre-flight: no API call, catches unknown models and bad flags.
+    validate:
+      - imagine
+      - generate
+      - "--model=${params.model?}"
+      - "--prompt=${params.prompt}"
+      - "--dry-run"
+    invocation:
+      - imagine
+      - generate
+      - "--model=${params.model?}"
+      - "--prompt=${params.prompt}"
+      - "--output=${produces.image}"
+      - "--size=${params.size?}"
+      - "--width=${params.width?}"
+      - "--height=${params.height?}"
+      - "--format=${params.format?}"
+      - "--quality=${params.quality?}"
+      - "--compression=${params.compression?}"
+      - "--seed=${params.seed?}"
+      - --quiet
+  text:
+    description: imagine text render — a styled text layer as a transparent PNG (needs a resvg-enabled build).
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [text, width]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 'Text content; a literal \n is a line break.'
+        width:
+          type: integer
+          minimum: 1
+        font:
+          type: string
+        size:
+          type: integer
+          minimum: 1
+        color:
+          type: string
+          description: 'Fill colour, e.g. #ffffff.'
+        stroke:
+          type: string
+        strokeWidth:
+          type: integer
+          minimum: 0
+        align:
+          enum: [left, center, right]
+        lineHeight:
+          type: number
+          exclusiveMinimum: 0
+        padding:
+          type: integer
+          minimum: 0
+    produces: [image]
+    invocation:
+      - imagine
+      - text
+      - render
+      - "--text=${params.text}"
+      - "--output=${produces.image}"
+      - "--width=${params.width}"
+      - "--font=${params.font?}"
+      - "--size=${params.size?}"
+      - "--color=${params.color?}"
+      - "--stroke=${params.stroke?}"
+      - "--stroke-width=${params.strokeWidth?}"
+      - "--align=${params.align?}"
+      - "--line-height=${params.lineHeight?}"
+      - "--padding=${params.padding?}"

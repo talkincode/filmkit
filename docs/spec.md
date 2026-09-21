@@ -303,6 +303,7 @@ tasks:        {...}        # §3.3
 | `requires.binaries` | [string] | 额外二进制 |
 | `healthcheck` | [string] | argv；`doctor` 执行，退出 0 视为健康。仅 `cli` |
 | `healthcheckCwd` | string | `healthcheck` 的工作目录（相对项目目录）。工具只装在某个项目目录内时必填，例如 Remotion 只在它自己的 `node_modules` 里 |
+| `healthcheckExpect` | `{ path, equals }` | `healthcheck` 退出 0 之后对其 **stdout JSON** 的断言：按 `path`（点分）取值，须 `equals` 给定标量。输出是数组时，任一元素满足即通过。用于"退出码说谎"的工具——`imagine models --json` 在没有任何可用模型时仍退出 0，`hyperframes doctor --json` 永远退出 0 |
 | `exitCodes` | map<string,ExitClass> | 工具退出码 → `ok` \| `io` \| `invalid-input` \| `missing-dependency` \| `tool-failure`；未映射的非零码归为 `tool-failure` |
 
 ### 3.2 `capabilities`
@@ -326,6 +327,8 @@ tasks:        {...}        # §3.3
 | `invocation` | [string] | argv 模板；`filmkit run` 执行。仅 `cli`。缺失时 `run` 拒绝 |
 
 ### 3.4 模板占位符与工作目录
+
+`validate` 委托执行失败时，用该 Profile 的 `exitCodes` 分类（§3.1）：工具报"输入不合法"（如 scorekit 2）→ `invalid-input`；工具报"我跑不起来"（缺凭据、找不到浏览器等）→ `tool-failure`。未映射的非零码归为 `tool-failure`。所以"校验脚本非零退出"要变成 `invalid-input`，Profile 必须显式声明映射。
 
 `validate` / `invocation` / `healthcheck` 的每个 argv 元素可含以下占位符，静态替换，无表达式：
 

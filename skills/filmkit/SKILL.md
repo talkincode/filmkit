@@ -205,6 +205,40 @@ What happens under the hood, and what it means for you:
 - A `durationPolicy: exact` scene is better served by rendering the exact frame
   range (`frames: "0-99"`) than by letting filmkit trim afterwards.
 
+## Generating images with imagine
+
+`profiles/imagine.yaml` wraps [imagine](https://github.com/talkincode/imagine):
+
+```yaml
+scenes:
+  - id: s1
+    duration: 6
+    durationPolicy: exact
+    impl:
+      profile: imagine
+      task: generate
+      params:
+        model: MAI-Image-2.6      # from `imagine models`; omit when only one model is configured
+        prompt: 深夜律所走廊，一束光落在文件柜上，纪录片风格
+        size: 1024x1536
+    produces: { image: ./build/s1.png }
+```
+
+- `filmkit validate` runs the task with `--dry-run`, which prints the request body
+  **without calling the API**: unknown models and bad flags cost nothing.
+- `filmkit run s1` performs the real call. Credentials belong to imagine (its own
+  config file or `IMAGINE_*` / `AZURE_OPENAI_APIKEY`); filmkit never stores or
+  prints a key, and `doctor` only reports whether a *ready* model exists.
+- Generated pixels are **not reproducible**: the same params give different
+  images. The lock records the bytes you actually got, so re-running is a
+  deliberate act, not something `build` does on its own.
+- Exploring variants (`-n 4`, comparing models) is your job, not a node: run
+  imagine directly, pick a winner, then point `produces.image` at it (or let the
+  scene reference the chosen file with `filmkit/static`).
+- `task: text` renders a styled text layer to a transparent PNG (needs an
+  imagine build with resvg support) — handy for cards and watermarks where the
+  local ffmpeg has no `drawtext`.
+
 ## Profiles: registering a tool
 
 A Profile is a small YAML document (`kind: Profile`) that declares what a tool
@@ -231,9 +265,15 @@ tasks:
     invocation: ["scorekit", "build", "${params.scene}", "-o", "${produces.audio}"]
 ```
 
-- Ready-made Profiles ship in the filmkit repository: `profiles/remotion.yaml`
-  and `profiles/scorekit.yaml`; copy them into your project and reference them
-  as `./profiles/<name>.yaml`.
+- Ready-made Profiles ship in the filmkit repository: `profiles/remotion.yaml`,
+  `profiles/imagine.yaml` and `profiles/scorekit.yaml`; copy them into your
+  project and reference them as `./profiles/<name>.yaml`.
+- `runtime.healthcheckExpect: { path, equals }` asserts on the healthcheck's JSON
+  output — for tools that exit 0 even when they cannot work (imagine with no
+  ready model, hyperframes doctor). Array output passes if any element matches.
+- `exitCodes` is what decides how a failing `validate` template is classified:
+  a validator that exits 1 for "bad input" must declare `"1": invalid-input`,
+  otherwise its failure is reported as a tool failure.
 - `runtime.type: cli` gives filmkit three knobs beyond `invocation`:
   `tasks[].cwd` (run the tool inside its own project directory),
   `runtime.healthcheckCwd` (check a tool that lives inside that directory), and

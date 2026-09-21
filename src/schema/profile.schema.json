@@ -35,6 +35,16 @@
           }
         },
         "healthcheck": { "$ref": "#/$defs/argv" },
+        "healthcheckExpect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "equals"],
+          "description": "Assertion on the healthcheck's JSON output. Needed when the tool exits 0 even while unusable (imagine models --json lists unready models, hyperframes doctor --json always exits 0). When the output is an array, the expectation passes if any element matches.",
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$" },
+            "equals": {}
+          }
+        },
         "healthcheckCwd": {
           "type": "string",
           "minLength": 1,
@@ -48,7 +58,10 @@
       },
       "allOf": [
         { "if": { "properties": { "type": { "const": "cli" } } }, "then": { "required": ["binary"] } },
-        { "if": { "not": { "properties": { "type": { "const": "cli" } } } }, "then": { "not": { "anyOf": [{ "required": ["healthcheck"] }, { "required": ["binary"] }] } } }
+        {
+          "if": { "not": { "properties": { "type": { "const": "cli" } } } },
+          "then": { "not": { "anyOf": [{ "required": ["healthcheck"] }, { "required": ["binary"] }, { "required": ["healthcheckCwd"] }, { "required": ["healthcheckExpect"] }] } }
+        }
       ]
     },
     "capabilities": {

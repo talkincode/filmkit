@@ -179,6 +179,12 @@ export interface Profile {
     healthcheck?: string[];
     /** Working directory for the healthcheck, film-dir-relative (spec §3.1). */
     healthcheckCwd?: string;
+    /**
+     * Assertion on the healthcheck's JSON output, for tools that exit 0 even
+     * when they cannot work (spec §3.1). When the output is an array, the
+     * expectation passes if any element matches.
+     */
+    healthcheckExpect?: { path: string; equals: unknown };
     exitCodes?: Record<string, ExitClass>;
   };
   capabilities?: { produces?: ProduceType[]; consumes?: ProduceType[] };

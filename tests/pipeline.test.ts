@@ -398,8 +398,17 @@ tasks:
     }).replace("  - ref: filmkit/ffmpeg", "  - ref: filmkit/ffmpeg\n  - ref: ./profiles/copier.yaml");
     p.write("filmkit.yaml", yaml("bad"));
     const bad = p.json("validate");
-    expect(bad.exitCode).toBe(2);
+    // The script exits 1 and the Profile does not map it, so the failure is the
+    // tool's (exit 4), not a verdict on the film's input.
+    expect(bad.exitCode).toBe(4);
+    expect(bad.err!.errors[0]!.code).toBe("tool-failure");
     expect(bad.err!.errors[0]!.message).toMatch(/copier validate/);
+
+    // Declaring the mapping is what makes a validator's failure an `invalid-input`.
+    p.write("profiles/copier.yaml", readFileSync(p.path("profiles/copier.yaml"), "utf8").replace('{ "0": ok }', '{ "0": ok, "1": invalid-input }'));
+    const bad2 = p.json("validate");
+    expect(bad2.exitCode).toBe(2);
+    expect(bad2.err!.errors[0]!.code).toBe("invalid-input");
     expect(p.json("validate", "--no-delegate").exitCode).toBe(0);
     p.write("filmkit.yaml", yaml("good"));
     expect(p.json("validate").exitCode).toBe(0);
