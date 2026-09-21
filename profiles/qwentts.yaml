@@ -1,0 +1,112 @@
+# Ready-to-use Profile for qwentts (https://github.com/talkincode/qwentts),
+# local Qwen3-TTS narration: CustomVoice presets with emotion control, Base
+# voice cloning from a reference clip, and VoiceDesign from a description.
+#
+# Install once (the script must be on PATH; models live under ~/mlx-audio-qwen3-tts):
+#   git clone https://github.com/talkincode/qwentts && cd qwentts
+#   ln -sf "$PWD/skills/qwentts/scripts/qwen3-tts-ai" ~/.local/bin/qwen3-tts-ai
+#   qwen3-tts-ai --print-models        # doctor uses this: no model load, no generation
+# Model weights download on first use; pass `allowDownload: true` (or pre-fetch
+# with the script itself). `doctor` cannot see the weights, so a missing model
+# surfaces at `filmkit run` with the tool's own message.
+#
+# Use it in a film:
+#   assets:
+#     voice:
+#       kind: audio
+#       impl:
+#         profile: qwentts
+#         task: speak
+#         params: { text: "深夜的律所走廊…", model: customvoice, voice: Serena, emotionIntensity: low, speed: 0.98 }
+#       produces: { audio: ./build/voice/s1.wav }
+#   scenes:
+#     - id: s1
+#       durationPolicy: min      # the narration decides the scene length
+#       audio: voice             # this scene's narration comes from that asset
+#       impl: { profile: filmkit/static, task: clip }
+#       produces: { image: ./assets/card.png }
+#
+# Cloning route: `model: base` with `referenceAudio` (a ./ path or an absolute
+# path to a reference clip) and, when you know it, `refText` with the exact words
+# in that clip — better quality, never invented.
+#
+# filmkit never writes the text and never picks a voice: those are the agent's
+# creative decisions, passed through `params`.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: qwentts
+  version: ">=0.2"
+  description: Local Qwen3-TTS narration — preset voices with emotion control, reference-audio cloning, voice design.
+runtime:
+  type: cli
+  binary: qwen3-tts-ai
+  # Prints aliases and speakers and exits: proves the script runs without
+  # loading a model or spending generation time.
+  healthcheck: ["qwen3-tts-ai", "--print-models"]
+  exitCodes: { "0": ok, "2": invalid-input }
+capabilities:
+  produces: [audio]
+tasks:
+  speak:
+    description: qwen3-tts-ai — one text to one narration file.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: What to say. The agent writes it; filmkit never generates prose.
+        model:
+          enum: [customvoice, custom-voice, base, voice-design, voicedesign]
+          description: 'customvoice: preset speaker + emotion/style. base: clone from referenceAudio. voice-design: describe a voice in instruct.'
+        voice:
+          type: string
+          description: 'CustomVoice speaker (e.g. Serena, Vivian, Uncle_Fu, Dylan, Eric, Ryan, Aiden) or a Base speaker name.'
+        mode:
+          enum: [fast, quality]
+          description: Generation preset; quality is slower and steadier. Default fast.
+        instruct:
+          type: string
+          description: Style/emotion instruction for customvoice, or the voice description for voice-design.
+        emotionIntensity:
+          enum: [auto, flat, low, medium, high, extreme]
+          description: Emotion strength. Leave at auto unless the scene calls for more.
+        speed:
+          type: number
+          exclusiveMinimum: 0
+          description: Playback speed multiplier, e.g. 0.98.
+        temperature:
+          type: number
+          exclusiveMinimum: 0
+        topP:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1
+        referenceAudio:
+          type: string
+          description: 'Reference clip for base cloning (a ./ path inside the film, or an absolute path to a voice library file).'
+        refText:
+          type: string
+          description: Exact transcript of referenceAudio, when you know it. Never invent it.
+        allowDownload:
+          type: boolean
+          description: Allow fetching missing model weights from Hugging Face. Default false, so nothing downloads behind your back.
+    produces: [audio]
+    invocation:
+      - qwen3-tts-ai
+      - "--text=${params.text}"
+      - "--output=${produces.audio}"
+      - "--model=${params.model?}"
+      - "--voice=${params.voice?}"
+      - "--mode=${params.mode?}"
+      - "--instruct=${params.instruct?}"
+      - "--emotion-intensity=${params.emotionIntensity?}"
+      - "--speed=${params.speed?}"
+      - "--temperature=${params.temperature?}"
+      - "--top-p=${params.topP?}"
+      - "--reference-audio=${params.referenceAudio?}"
+      - "--ref-text=${params.refText?}"
+      - "--allow-download=${params.allowDownload?}"

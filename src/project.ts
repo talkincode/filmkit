@@ -100,17 +100,18 @@ function collectMissingFiles(loaded: LoadedFilm): { missing: MissingFile[]; erro
   ];
   // Paths another node produces are work items of that node, not missing inputs:
   // `plan` orders the producer first and the consumer stays blocked until then.
-  // The same goes for a directory that *contains* a declared produce — a tool
-  // asked to write into `./build/voice` is not missing anything when the tts
-  // node that fills it has not run yet.
+  // The same goes for the exact directory a produce lands in — a tool told to
+  // write into `./build/voice` is not missing anything when the tts node that
+  // fills it has not run yet. (Only that directory: a sibling file such as
+  // `./assets/absent.mp3` is still a genuinely missing input.)
   const producedPaths = new Set<string>();
-  const producedDirs: string[] = [];
+  const producedDirs = new Set<string>();
   for (const node of nodesOf(film)) {
     for (const path of Object.values(node.produces)) {
       const normalized = normalize(path);
       producedPaths.add(normalized);
       const cut = normalized.lastIndexOf("/");
-      if (cut > 0) producedDirs.push(`${normalized.slice(0, cut)}/`);
+      if (cut > 0) producedDirs.add(normalized.slice(0, cut));
     }
   }
   for (const n of nodeParams) {
@@ -118,7 +119,7 @@ function collectMissingFiles(loaded: LoadedFilm): { missing: MissingFile[]; erro
       if (typeof v !== "string" || !(v.startsWith("./") || v.startsWith("../"))) continue;
       const normalized = normalize(v);
       if (producedPaths.has(normalized)) continue;
-      if (producedDirs.some((d) => `${normalized}/`.startsWith(d))) continue;
+      if (producedDirs.has(normalized)) continue;
       if (!existsSync(resolve(dir, v))) out.push({ path: v, field: formatFieldPath([...n.field, k]), usedBy: [n.id] });
     }
   }

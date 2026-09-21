@@ -29,7 +29,7 @@ bun bin/filmkit.ts plan          # 列出还缺的文件与需要产出的场景
 
 唯一硬性依赖是 `ffmpeg` / `ffprobe`（`filmkit doctor` 会检查）。Agent 使用说明在 [skills/filmkit/SKILL.md](skills/filmkit/SKILL.md)。
 
-随仓库分发的 Profile（都可选，复制进项目后引用）：`profiles/hyperframes.yaml`（HTML composition → 片段）、`profiles/remotion.yaml`（React composition → 片段 / 单帧）、`profiles/imagine.yaml`（图片生成 / 文本图层）、`profiles/scorekit.yaml`（音乐生成）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。本机 ffmpeg 没有 `drawtext`／libass，文字进画面用 `imagine text` 出透明 PNG（卡片场景或叠加轨），由带 alpha 的画面合成到 `output.background`。
+随仓库分发的 Profile（都可选，复制进项目后引用）：`profiles/hyperframes.yaml`（HTML composition → 片段，含本地 TTS / 转录 / 抠像）、`profiles/remotion.yaml`（React composition → 片段 / 单帧）、`profiles/imagine.yaml`（图片生成 / 文本图层）、`profiles/scorekit.yaml`（音乐生成）、`profiles/qwentts.yaml`（中文旁白：预置音色 + 情绪控制 / 声音克隆 / 文本建声）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。本机 ffmpeg 没有 `drawtext`／libass，文字进画面用 `imagine text` 出透明 PNG（卡片场景或叠加轨），由带 alpha 的画面合成到 `output.background`。
 
 ## 开发
 
@@ -40,6 +40,7 @@ bash scripts/e2e-remotion.sh      # 用真实 Remotion CLI 跑完整链路（联
 bash scripts/e2e-hyperframes.sh   # 用真实 HyperFrames CLI 跑完整链路（联网装包）
 bash scripts/e2e-imagine-text.sh --build   # 文字卡：现搭支持 resvg 的 imagine 并跑完整链路
 bash scripts/e2e-hyperframes.sh --narration  # 旁白链：真 TTS → 转录 → 字幕 → 成片（需本地模型）
+bash scripts/e2e-qwentts.sh                  # 中文旁白：真 Qwen3-TTS 合成并驱动场景时长（需本地模型）
 ```
 
 ## 文档

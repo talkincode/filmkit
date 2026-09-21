@@ -277,8 +277,39 @@ scenes:
 
 ## Narration and subtitles (all local)
 
-`profiles/hyperframes.yaml` covers the whole chain with local models, no cloud
-keys — three nodes, each one command, wired by `./` paths:
+Two narration backends ship as Profiles; both are local, no cloud keys.
+
+`profiles/qwentts.yaml` (Qwen3-TTS) is the richer one for Chinese: preset voices
+with emotion control, voice cloning from a reference clip, and voice design from
+a description. One node produces the narration:
+
+```yaml
+assets:
+  voice:
+    kind: audio
+    impl:
+      profile: qwentts
+      task: speak
+      params:
+        text: "这件事，我们不急着下结论。先确认事实，再判断责任。"
+        model: customvoice          # or base (clone from referenceAudio), voice-design
+        voice: Serena               # Vivian, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Sohee…
+        emotionIntensity: low       # auto | flat | low | medium | high | extreme
+        instruct: "亲切、稳定、专业，语气克制但有起伏"
+        speed: 0.98
+    produces: { audio: ./build/voice/s1.wav }
+```
+
+Cloning route: `model: base` with `referenceAudio` (a `./` path or a voice-library
+file) and `refText` only when you know the exact words — never invent it.
+`qwen3-tts-ai` must be on PATH (symlink it from the qwentts repo) and its model
+weights must be present; `filmkit doctor` runs the tool's cheap `--print-models`
+check, which proves the script runs but cannot see the weights, so a missing
+model surfaces at `filmkit run` with the tool's own message.
+
+`profiles/hyperframes.yaml` covers the whole chain (narration + transcription +
+subtitles) with local models — three nodes, each one command, wired by `./`
+paths:
 
 ```yaml
 assets:
@@ -326,9 +357,9 @@ What to know:
 
 ### Wrapping your own local tool
 
-The chain above is not HyperFrames-specific: any tool becomes a Profile. This is
-the shape for a local TTS wrapper that is not on `PATH` (the pattern, not a
-shipped profile — bundled profiles must be reproducible by strangers):
+Nothing above is tool-specific: any command becomes a Profile. This is the shape
+for a local wrapper that is not on `PATH` (the pattern, not a shipped profile —
+bundled profiles must be reproducible by strangers):
 
 ```yaml
 apiVersion: filmkit/v1alpha1
@@ -435,7 +466,7 @@ tasks:
 
 - Ready-made Profiles ship in the filmkit repository and are meant to be copied
   into your project (`./profiles/<name>.yaml`): `hyperframes`, `remotion`,
-  `imagine`, `scorekit`. Each header documents the layout it assumes (mostly a
+  `imagine`, `scorekit`, `qwentts`. Each header documents the layout it assumes (mostly a
   `./video` project directory) and what it refuses to do.
 - `runtime.healthcheckExpect: { select?, where?, path, equals }` asserts on the
   healthcheck's JSON output — for tools that exit 0 even when they cannot work
