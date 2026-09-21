@@ -57,19 +57,48 @@ function walk(value: unknown, path: PathSegment[], fn: (s: string, path: PathSeg
 /**
  * Expand an argv template. `table` maps full placeholder names
  * (`params.scene`, `produces.video`, `inputs.cover`, `node.id`, ...) to values.
- * A string[] value is only legal when the placeholder is the whole argv element
- * (used by filmkit/ffmpeg's `${params.args}`), in which case it splices.
+ *
+ * - A string[] value splices when the placeholder is the whole argv element
+ *   (used by filmkit/ffmpeg's `${params.args}`).
+ * - `${name?}` marks a placeholder as optional: when the name is absent from the
+ *   table, the **whole argv element is dropped**. That is how a Profile exposes
+ *   optional tool flags (`--codec=${params.codec?}`) without conditionals.
+ * - `knownParamKeys`, when given, rejects `params.<key>` placeholders that the
+ *   task's paramsSchema does not declare, so a typo cannot silently drop a flag.
  */
 export function expandArgv(
   template: string[],
   table: Record<string, string | string[] | undefined>,
   field: string,
+  knownParamKeys?: string[],
 ): { argv: string[]; errors: ErrorDetail[] } {
   const argv: string[] = [];
   const errors: ErrorDetail[] = [];
+  const OPTIONAL = /\$\{([^}]*?)\?\}/g;
+  const NAME_OK = /^(params|inputs|produces|node|film|output)\.[A-Za-z0-9_.-]+$/;
+
+  const checkName = (name: string, where: string): void => {
+    if (!NAME_OK.test(name)) {
+      errors.push(invalid(`malformed placeholder name "${name}"`, { field: where }));
+      return;
+    }
+    if (knownParamKeys && name.startsWith("params.")) {
+      const key = name.slice("params.".length);
+      if (!key.includes(".") && !knownParamKeys.includes(key)) {
+        errors.push(
+          invalid(`params.${key} is not declared in the task's paramsSchema`, {
+            field: where,
+            hint: `declared: ${knownParamKeys.join(", ") || "(none)"}`,
+          }),
+        );
+      }
+    }
+  };
+
   const expandScalar = (element: string, where: string): string =>
     element.replace(PLACEHOLDER, (ph, inner: string) => {
-      const v = table[inner];
+      const name = inner.endsWith("?") ? inner.slice(0, -1) : inner;
+      const v = table[name];
       if (v === undefined) {
         errors.push(invalid(`unknown placeholder "${ph}"`, { field: where }));
         return ph;
@@ -80,9 +109,20 @@ export function expandArgv(
       }
       return v;
     });
+
   template.forEach((element, i) => {
     const where = `${field}[${i}]`;
-    const whole = /^\$\{([^}]*)\}$/.exec(element);
+    // Optional placeholders: drop the element when any of them is absent.
+    const optional = [...element.matchAll(OPTIONAL)].map((m) => m[1]!);
+    let drop = false;
+    for (const name of optional) {
+      checkName(name, where);
+      if (table[name] === undefined) drop = true;
+    }
+    if (drop) return;
+    const stripped = optional.length ? element.replace(OPTIONAL, (_m, name: string) => `\${${name}}`) : element;
+
+    const whole = /^\$\{([^}]*)\}$/.exec(stripped);
     const v = whole ? table[whole[1]!] : undefined;
     if (whole && Array.isArray(v)) {
       // Spliced array (filmkit/ffmpeg's ${params.args}); its elements may hold
@@ -90,7 +130,7 @@ export function expandArgv(
       v.forEach((el, j) => argv.push(expandScalar(el, `${where}(${whole[1]}[${j}])`)));
       return;
     }
-    argv.push(expandScalar(element, where));
+    argv.push(expandScalar(stripped, where));
   });
   return { argv, errors };
 }

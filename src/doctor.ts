@@ -1,6 +1,8 @@
 // `filmkit doctor`: is the environment able to build this project?
 // Reports presence only — never prints an environment variable's value.
 
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { exec, isOnPath } from "./exec.ts";
 import type { LoadedFilm } from "./film.ts";
 import { BUILTIN_PROFILE_NAMES } from "./profile.ts";
@@ -48,15 +50,20 @@ export function doctor(loaded: LoadedFilm | undefined, cwd: string): DoctorRepor
     const binaries = [...(rt.binary ? [rt.binary] : []), ...(rt.requires?.binaries ?? [])].map((name) => ({ name, found: isOnPath(name) }));
     const env = (rt.requires?.env ?? []).map((name) => ({ name, set: process.env[name] !== undefined && process.env[name] !== "" }));
     let healthcheck: DoctorReport["profiles"][number]["healthcheck"];
-    if (rt.healthcheck && binaries.every((b) => b.found)) {
+    // A tool installed inside a project directory (a Remotion project's node_modules)
+    // only answers from there, so the Profile can pin the healthcheck's cwd.
+    const hcCwd = rt.healthcheckCwd ? resolve(cwd, rt.healthcheckCwd) : cwd;
+    if (rt.healthcheckCwd && !existsSync(hcCwd)) {
+      problems.push(`profile ${p.profile.metadata.name}: healthcheck cwd ${rt.healthcheckCwd} does not exist`);
+    } else if (rt.healthcheck && binaries.every((b) => b.found)) {
       try {
-        const r = exec(rt.healthcheck, { cwd });
+        const r = exec(rt.healthcheck, { cwd: hcCwd });
         healthcheck = { argv: rt.healthcheck, ok: r.status === 0, exit: r.status };
       } catch {
         healthcheck = { argv: rt.healthcheck, ok: false, exit: null };
       }
     }
-    const ok = binaries.every((b) => b.found) && env.every((e) => e.set) && (healthcheck?.ok ?? true);
+    const ok = binaries.every((b) => b.found) && env.every((e) => e.set) && (healthcheck?.ok ?? true) && (!rt.healthcheckCwd || existsSync(hcCwd));
     if (!ok) {
       const why = [
         ...binaries.filter((b) => !b.found).map((b) => `binary ${b.name} not found`),

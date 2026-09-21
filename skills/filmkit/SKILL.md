@@ -163,6 +163,48 @@ picture cut (scene start, or the middle of a crossfade) within `tolerance`
 failure names the cue, the measured offset and the expected cut. `exact` never
 loops or pads: if the music is short, lengthen it or use `fit: loop`.
 
+## Rendering a scene with Remotion
+
+A ready-made Profile ships in the filmkit repository (`profiles/remotion.yaml`):
+
+```yaml
+scenes:
+  - id: s1
+    duration: 4
+    durationPolicy: min
+    impl:
+      profile: remotion
+      task: render
+      params:
+        project: ./video                    # Remotion project dir, relative to filmkit.yaml
+        entry: src/index.ts                 # project-relative (Remotion's own vocabulary)
+        composition: SceneOne
+        props: ./video/props/s1.json         # you write it; filmkit checks + hashes it
+    produces: { video: ./build/s1.mp4 }
+```
+
+What happens under the hood, and what it means for you:
+
+- The commands run **inside `./video`** (`tasks[].cwd`), because Remotion's CLI only
+  resolves from its own project. Every path filmkit hands over — `produces`,
+  `inputs`, and `./`-prefixed params like `props` — is passed as an **absolute
+  path**; strings without `./` (`entry`) are passed through untouched.
+- `props` is the hand-off channel: read the resolved scene seconds and the
+  `output` spec from `filmkit plan`, write them into the props JSON, and the
+  composition renders exactly what the film asks for. Never let filmkit or you
+  write the TSX — that is the composition author's job.
+- Values inside the props file and the whole `project` directory (minus
+  `node_modules`) are folded into the node's staleness key: edit the TSX or the
+  props and `filmkit plan` marks the scene `stale`, so `build` cannot recycle an
+  old clip. Re-run the scene with `filmkit run <id>`.
+- Optional flags are dropped when unset: `crf`, `scale`, `frames`, `concurrency`,
+  `log`, `imageFormat`. Setting an undeclared param fails `validate`.
+- Use `task: still` when you want a single frame as an image (covers, posters).
+- Keep compositions deterministic — no `Date.now()`, unseeded randomness or
+  render-time network calls — or the lock's hashes stop meaning anything.
+- A `durationPolicy: exact` scene is better served by rendering the exact frame
+  range (`frames: "0-99"`) than by letting filmkit trim afterwards.
+
 ## Profiles: registering a tool
 
 A Profile is a small YAML document (`kind: Profile`) that declares what a tool
@@ -189,9 +231,14 @@ tasks:
     invocation: ["scorekit", "build", "${params.scene}", "-o", "${produces.audio}"]
 ```
 
-- A ready-made Profile for scorekit ships in the filmkit repository
-  (`profiles/scorekit.yaml`); copy it into your project and reference it as
-  `./profiles/scorekit.yaml`.
+- Ready-made Profiles ship in the filmkit repository: `profiles/remotion.yaml`
+  and `profiles/scorekit.yaml`; copy them into your project and reference them
+  as `./profiles/<name>.yaml`.
+- `runtime.type: cli` gives filmkit three knobs beyond `invocation`:
+  `tasks[].cwd` (run the tool inside its own project directory),
+  `runtime.healthcheckCwd` (check a tool that lives inside that directory), and
+  `${params.x?}` (drop an argv element when the param is absent — this is how
+  optional flags are exposed without conditionals).
 - `runtime.type: cli` + `invocation` → `filmkit run <id>` executes it.
   Anything else (`skill`, `mcp`, `http`) is yours to execute; `plan` says
   `executor: agent`.

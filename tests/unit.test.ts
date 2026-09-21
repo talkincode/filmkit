@@ -2,8 +2,11 @@
 // without ffmpeg: timeline arithmetic, SRT merge, substitution, hashing.
 
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { formatSrt, mergeCues, parseSrt } from "../src/build/subtitles.ts";
-import { hashParams } from "../src/hash.ts";
+import { paramsHash } from "../src/hash.ts";
 import { sceneDuration } from "../src/timeline.ts";
 import { expandArgv, substituteVars } from "../src/vars.ts";
 import type { Scene } from "../src/types.ts";
@@ -64,9 +67,69 @@ describe("${vars} substitution and argv templates", () => {
   });
 });
 
-describe("hashParams", () => {
+describe("argv templates: optional placeholders", () => {
+  test("drops the whole element when an optional placeholder is absent, keeps it otherwise", () => {
+    const t = ["tool", "run", "${params.entry}", "--crf=${params.crf?}", "--scale=${params.scale?}", "${params.frames?}"];
+    const base = { "params.entry": "src/index.ts" };
+    expect(expandArgv(t, base, "x").argv).toEqual(["tool", "run", "src/index.ts"]);
+    expect(expandArgv(t, { ...base, "params.crf": "18" }, "x").argv).toEqual(["tool", "run", "src/index.ts", "--crf=18"]);
+    expect(expandArgv(t, { ...base, "params.crf": "18", "params.frames": "0-89" }, "x").argv).toEqual([
+      "tool", "run", "src/index.ts", "--crf=18", "0-89",
+    ]);
+  });
+
+  test("a required placeholder that is absent is still an error", () => {
+    const r = expandArgv(["tool", "${params.nope}"], {}, "x");
+    expect(r.argv).toEqual(["tool", "${params.nope}"]);
+    expect(r.errors.map((e) => e.message)).toEqual(['unknown placeholder "${params.nope}"']);
+  });
+
+  test("a misspelled optional param name is caught against the declared schema keys", () => {
+    const r = expandArgv(["tool", "--crf=${params.crf?}"], { "params.crf": "18" }, "x", ["codec", "crf"]);
+    expect(r.argv).toEqual(["tool", "--crf=18"]);
+    const bad = expandArgv(["tool", "--coodec=${params.coodec?}"], {}, "x", ["codec", "crf"]);
+    expect(bad.errors.map((e) => e.message)).toEqual(["params.coodec is not declared in the task's paramsSchema"]);
+    const malformed = expandArgv(["tool", "--x=${params.a b?}"], {}, "x", ["codec"]);
+    expect(malformed.errors.map((e) => e.message)).toEqual(['malformed placeholder name "params.a b"']);
+  });
+});
+
+describe("paramsHash", () => {
   test("is independent of key order", () => {
-    expect(hashParams({ a: 1, b: { c: [1, 2], d: "x" } })).toBe(hashParams({ b: { d: "x", c: [1, 2] }, a: 1 }));
-    expect(hashParams({ a: 1 })).not.toBe(hashParams({ a: 2 }));
+    expect(paramsHash({ a: 1, b: { c: [1, 2], d: "x" } }, "/tmp")).toBe(paramsHash({ b: { d: "x", c: [1, 2] }, a: 1 }, "/tmp"));
+    expect(paramsHash({ a: 1 }, "/tmp")).not.toBe(paramsHash({ a: 2 }, "/tmp"));
+  });
+
+  test("follows the content of referenced files and directories", () => {
+    const dir = mkdtempSync(join(tmpdir(), "filmkit-hash-"));
+    try {
+      writeFileSync(join(dir, "doc.yaml"), "a: 1\n");
+      mkdirSync(join(dir, "project/src"), { recursive: true });
+      writeFileSync(join(dir, "project/src/index.tsx"), "export const A = 1;\n");
+      mkdirSync(join(dir, "project/node_modules/dep"), { recursive: true });
+      writeFileSync(join(dir, "project/node_modules/dep/index.js"), "module.exports = 1;\n");
+      const params = { doc: "./doc.yaml", project: "./project" };
+      const base = paramsHash(params, dir);
+      expect(base).toBe(paramsHash({ doc: "./doc.yaml", project: "./project" }, dir));
+
+      // Editing the tool's own document changes the hash…
+      writeFileSync(join(dir, "doc.yaml"), "a: 2\n");
+      expect(paramsHash(params, dir)).not.toBe(base);
+      writeFileSync(join(dir, "doc.yaml"), "a: 1\n");
+      // …as does adding a source file inside a referenced project directory…
+      expect(paramsHash(params, dir)).toBe(base);
+      writeFileSync(join(dir, "project/src/new.tsx"), "export const B = 2;\n");
+      const withNew = paramsHash(params, dir);
+      expect(withNew).not.toBe(base);
+      // …but node_modules is tooling, not source.
+      writeFileSync(join(dir, "project/node_modules/dep/index.js"), "module.exports = 2;\n");
+      expect(paramsHash(params, dir)).toBe(withNew);
+      // A path that does not exist yet hashes differently from one that does.
+      expect(paramsHash({ doc: "./nope.yaml" }, dir)).not.toBe(paramsHash({ doc: "./doc.yaml" }, dir));
+      // Absolute paths and plain values are not treated as project paths.
+      expect(paramsHash({ abs: "/etc/hosts" }, dir)).toBe(paramsHash({ abs: "/etc/hosts" }, dir));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

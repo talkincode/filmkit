@@ -16,9 +16,9 @@ import { downstreamOf, topoOrder } from "./graph.ts";
 import { readLock } from "./lock.ts";
 import { checkExactTrack, exactTracks } from "./cues.ts";
 import { observe, type ProjectState } from "./state.ts";
-import { expandTemplate } from "./template.ts";
+import { resolveTaskCwd, taskCommand } from "./template.ts";
 import { deriveTimeline, type DerivedTimeline } from "./timeline.ts";
-import { isGeneratedAsset } from "./types.ts";
+import { isGeneratedAsset, type Impl } from "./types.ts";
 import { formatFieldPath } from "./yaml.ts";
 import { sha256File } from "./hash.ts";
 
@@ -51,12 +51,14 @@ export interface AnalyzeOptions {
 
 export function analyze(filmPath: string, opts: AnalyzeOptions = {}): Analysis {
   const loaded = loadFilm(filmPath);
-  const missingFiles = collectMissingFiles(loaded);
+  const collected = collectMissingFiles(loaded);
+  const missingFiles = collected.missing;
   const missingNodeIds = new Set(missingFiles.flatMap((m) => m.usedBy));
 
   const lock = readLock(loaded.dir);
   const state = observe(loaded, lock);
   const errors = new ErrorCollector();
+  collected.errors.forEach((e) => errors.add(at(e, loaded.src)));
   const order = topoOrder(loaded, errors);
   errors.throwIfAny();
   const timeline = deriveTimeline(loaded, state, errors);
@@ -75,9 +77,10 @@ export function analyze(filmPath: string, opts: AnalyzeOptions = {}): Analysis {
 }
 
 /** Static assets and `./`-prefixed params must exist; report, do not throw (see the header note). */
-function collectMissingFiles(loaded: LoadedFilm): MissingFile[] {
+function collectMissingFiles(loaded: LoadedFilm): { missing: MissingFile[]; errors: ErrorDetail[] } {
   const { film, dir } = loaded;
   const out: MissingFile[] = [];
+  const hardErrors: ErrorDetail[] = [];
   const usedBy = (id: string): string[] => {
     const users: string[] = [];
     for (const [assetId, asset] of Object.entries(film.assets)) if (isGeneratedAsset(asset) && asset.inputs.includes(id)) users.push(assetId);
@@ -102,13 +105,34 @@ function collectMissingFiles(loaded: LoadedFilm): MissingFile[] {
       }
     }
   }
+  // A task's cwd (a tool project directory) is an input too.
+  for (const node of [...Object.entries(film.assets).filter(([, a]) => isGeneratedAsset(a)).map(([id, a]) => ({ id, impl: (a as { impl: Impl }).impl, field: ["assets", id] as (string | number)[] })),
+    ...film.scenes.map((s, i) => ({ id: s.id, impl: s.impl, field: ["scenes", i] as (string | number)[] }))]) {
+    const profile = loaded.profiles.get(node.impl.profile);
+    const task = profile?.profile.tasks[node.impl.task];
+    if (!task?.cwd) continue;
+    const asNode: Node = { id: node.id, kind: "scene", impl: node.impl, produces: {}, inputs: [], field: node.field };
+    const resolved = resolveTaskCwd(loaded, asNode, task, `${node.impl.profile}.tasks.${node.impl.task}.cwd`);
+    if (resolved.errors.length) {
+      // Only structural problems (escape, malformed template) land here; a directory
+      // that is not there yet is work to do, not an error.
+      resolved.errors.forEach((e) => hardErrors.push(e));
+      continue;
+    }
+    if (!resolved.missing || resolved.relative === undefined) continue;
+    out.push({ path: resolved.relative, field: formatFieldPath([...node.field, "impl"]), usedBy: [node.id] });
+  }
+
   // A cue file is an input of the `fit: exact` track that declares it.
   film.timeline.tracks.forEach((t, i) => {
     if (t.kind !== "audio" || !t.cues) return;
     if (!existsSync(resolve(dir, t.cues))) out.push({ path: t.cues, field: `timeline.tracks[${i}].cues`, usedBy: [`track:${t.id}`] });
   });
   const seen = new Set<string>();
-  return out.filter((m) => (seen.has(`${m.field}|${m.path}`) ? false : (seen.add(`${m.field}|${m.path}`), true)));
+  return {
+    missing: out.filter((m) => (seen.has(`${m.field}|${m.path}`) ? false : (seen.add(`${m.field}|${m.path}`), true))),
+    errors: hardErrors,
+  };
 }
 
 /** Turn missing files into errors; `validate` and `build` call this, `plan` and `status` do not. */
@@ -136,11 +160,12 @@ function delegateValidation(loaded: LoadedFilm, order: Node[], errors: ErrorColl
     const task = prof.profile.tasks[node.impl.task]!;
     if (prof.profile.runtime.type !== "cli" || !task.validate) continue;
     const field = `${formatFieldPath(node.field)}.impl`;
-    const { argv, errors: tplErrors } = expandTemplate(loaded, node, task.validate, `${prof.profile.metadata.name}.tasks.${node.impl.task}.validate`);
-    if (tplErrors.length) { tplErrors.forEach((e) => errors.add(at({ ...e, field }, loaded.src))); continue; }
+    const taskField = `${prof.profile.metadata.name}.tasks.${node.impl.task}.validate`;
+    const cmd = taskCommand(loaded, node, task, task.validate, taskField);
+    if (cmd.errors.length) { cmd.errors.forEach((e) => errors.add(at({ ...e, field: e.field ?? field }, loaded.src))); continue; }
     let r;
     try {
-      r = exec(argv, { cwd: loaded.dir });
+      r = exec(cmd.argv, { cwd: cmd.cwd });
     } catch (err) {
       if (err instanceof FilmkitError) { err.errors.forEach((e) => errors.add(e)); continue; }
       throw err;

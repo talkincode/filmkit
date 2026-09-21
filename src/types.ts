@@ -155,6 +155,12 @@ export interface Film {
 
 export interface ProfileTask {
   description?: string;
+  /**
+   * Working directory for this task's commands. A template (film-dir-relative
+   * unless it uses `${film.dir}`). Declaring it also makes file placeholders
+   * absolute, because the tool no longer runs in the film directory (spec §3.4).
+   */
+  cwd?: string;
   paramsSchema: Record<string, unknown>;
   produces?: ProduceType[];
   validate?: string[];
@@ -171,6 +177,8 @@ export interface Profile {
     skill?: string;
     requires?: { env?: string[]; binaries?: string[] };
     healthcheck?: string[];
+    /** Working directory for the healthcheck, film-dir-relative (spec §3.1). */
+    healthcheckCwd?: string;
     exitCodes?: Record<string, ExitClass>;
   };
   capabilities?: { produces?: ProduceType[]; consumes?: ProduceType[] };

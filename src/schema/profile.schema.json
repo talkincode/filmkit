@@ -35,6 +35,11 @@
           }
         },
         "healthcheck": { "$ref": "#/$defs/argv" },
+        "healthcheckCwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Working directory for healthcheck, film-dir-relative. Needed when the tool is only installed inside a project directory (e.g. a Remotion project's node_modules)."
+        },
         "exitCodes": {
           "type": "object",
           "propertyNames": { "pattern": "^[0-9]+$" },
@@ -64,6 +69,11 @@
         "required": ["paramsSchema"],
         "properties": {
           "description": { "type": "string" },
+          "cwd": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Working directory for invocation/validate. A template: film-dir-relative unless it uses ${film.dir}. When declared, the task's file placeholders and ./-prefixed params are expanded to absolute paths, because the tool no longer runs in the film directory."
+          },
           "paramsSchema": { "type": "object" },
           "produces": { "type": "array", "items": { "$ref": "#/$defs/produceType" } },
           "validate": { "$ref": "#/$defs/argv" },

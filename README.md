@@ -29,13 +29,14 @@ bun bin/filmkit.ts plan          # 列出还缺的文件与需要产出的场景
 
 唯一硬性依赖是 `ffmpeg` / `ffprobe`（`filmkit doctor` 会检查）。Agent 使用说明在 [skills/filmkit/SKILL.md](skills/filmkit/SKILL.md)。
 
-随仓库分发的 Profile：`profiles/scorekit.yaml`（音乐生成，可选）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。
+随仓库分发的 Profile：`profiles/remotion.yaml`（Remotion 段渲染 / 单帧）与 `profiles/scorekit.yaml`（音乐生成），都是可选的。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。
 
 ## 开发
 
 ```bash
-bun test              # 真实 ffmpeg 端到端 + 单元测试
-bun run check         # tsc --noEmit + skill/CLI 一致性
+bun test                        # 真实 ffmpeg 端到端 + 单元测试（85 例）
+bun run check                   # tsc --noEmit + skill/CLI 一致性
+bash scripts/e2e-remotion.sh    # 用真实 Remotion CLI 跑完整链路（联网装包）
 ```
 
 ## 文档

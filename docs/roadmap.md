@@ -101,6 +101,7 @@ timeline:
 - **filmkit skill**：`skills/filmkit/SKILL.md`；`scripts/check-skill-cli.ts` 守护其与 CLI `--help` 一致。
 - **音乐卡点（`fit: exact`）**：`filmkit/cues-v1` 中立段落文件（`src/cues.ts`）+ 切点对齐校验（转场取中点，容差默认 0.05s，可按轨覆盖）；`validate` 与 `build` 都执行。切点定义与规则见 `docs/spec.md` §7。
 - **`import hyperstory`**：Video Composition Schema → 新 filmkit.yaml（`src/import.ts`）；无法表达的字段写入 `metadata.annotations` 并逐条 warning；默认拒绝覆盖已存在的 film。
+- **Remotion 集成**：随仓库分发 `profiles/remotion.yaml`（`render` / `still` 两个 task）。为此协议新增 `tasks[].cwd`（Remotion 必须在项目目录内执行）、`${name?}` 可选占位符（可选工具参数）、`runtime.healthcheckCwd`（Remotion 装在项目 `node_modules` 里）、以及"引用路径的内容哈希纳入陈旧判定"（改 TSX/props 会让节点 stale）。真实端到端脚本：`scripts/e2e-remotion.sh`；stub 测试：`tests/remotion.test.ts`。
 - **scorekit 集成**：随仓库分发 `profiles/scorekit.yaml`（`cli` 类，`validate` 委托 `scorekit --json validate`，`invocation` 调 `scorekit build`）。真实 scorekit 的端到端测试见 `tests/scorekit.test.ts`（未安装时跳过）。
 
 尚未实现（协议已保留字段，`validate` 明确拒绝）：`tracks[].stems`、字幕 `mode: burn`、`profiles[].source`、`filmkit mcp`。
@@ -123,6 +124,7 @@ timeline:
 12. **`filmkit schema [--profile]`** — 导出 Film / Profile 的 JSON Schema。
 13. **`filmkit init`** — 项目骨架、内置 Profile、示例编排文件。
 14. **`filmkit import hyperstory <schema.json>`** — 单向导入现有 Video Composition Schema，导入结果必须通过 `validate`。
+16. **Remotion 集成** — 随仓库分发的 `profiles/remotion.yaml`：`render`（composition → 片段）与 `still`（帧 → 图片）两个 task，`cwd` 指向 Remotion 项目目录，`props` 以 `./` 路径参数传递（存在性检查 + 内容哈希 + 绝对路径）；配套 `scripts/e2e-remotion.sh` 用真实 Remotion CLI 走完整链路。协议侧新增 `tasks[].cwd`、`${params.x?}` 可选占位符、`runtime.healthcheckCwd` 与"引用路径内容哈希"。
 15. **filmkit skill（使用说明书）** — 面向 Agent 的 SKILL.md：何时 `validate` / `plan` / `run` / `build`，如何读 Profile 把 `intent` 翻译成 `params`，禁止事项（不手改 lock、不在 `params` 外塞工具参数、不内嵌工具原生文档）。文中命令必须与 CLI `--help` 一致。
 
 跨功能约定（适用于全部命令）：`--json` 输出机器可读错误，含 `field` 路径与行号；退出码 `0` ok、`1` io、`2` invalid input、`3` missing dependency、`4` external tool failure。
@@ -188,6 +190,7 @@ timeline:
 | 12. schema 导出 | 低 | ✅ 三份 Schema 可被 Draft 2020-12 校验器编译 | 不适用（无失败分支） | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "schema exports load" |
 | 13. init | 中 | ✅ 骨架直接 validate/run/build 通过 | ✅ 非空目录拒绝 | 不适用 | ✅ 拒绝时不写任何文件 | `tests/pipeline.test.ts` "init + schema" |
 | 14. import hyperstory | 中 | ✅ schema → filmkit.yaml → plan → 补齐文件 → validate → build 出片 | ✅ 空 scenes / 无时长 / 无图无视频 / 未知 kind / 文件不存在 / 拒绝覆盖 | 不适用 | ✅ 目标已存在时拒绝写入且不修改原文件；`--force` 才覆盖 | `tests/import.test.ts` 五例 |
+| 16. Remotion 集成（render / still + cwd + 可选占位符 + 输入哈希） | 高 | ✅ stub 全链路（validate→plan→run→build）与真实 Remotion 端到端（`scripts/e2e-remotion.sh`） | ✅ cwd 缺失/逃出项目 / 未声明参数名 / 缺 props / 错 flag | 不适用 | ✅ run 失败无产物残留、lock 不变（沿用 run 的恢复路径） | `tests/remotion.test.ts` 八例；`scripts/e2e-remotion.sh`（真实 Remotion 4.0.526） |
 | 15. filmkit skill 与 CLI 一致性 | 低 | ✅ `bun run check:skill` | 不适用 | 不适用 | 不适用（文档） | `scripts/check-skill-cli.ts` |
 
 本矩阵当前没有 `❌ 缺口`：15 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。

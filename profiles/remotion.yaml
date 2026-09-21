@@ -1,0 +1,154 @@
+# Ready-to-use Profile for Remotion (https://remotion.dev).
+#
+# Copy it next to your film and reference it:
+#   profiles:
+#     - ref: ./profiles/remotion.yaml
+#   scenes:
+#     - id: s1
+#       impl:
+#         profile: remotion
+#         task: render
+#         params:
+#           project: ./video
+#           entry: src/index.ts                        # project-relative (Remotion's vocabulary)
+#           composition: SceneOne
+#           props: ./video/props/s1.json               # film-dir-relative; the agent writes it
+#       produces: { video: ./build/s1.mp4 }
+#
+# Path conventions (filmkit docs/spec.md §3.4):
+#   * `project` is film-dir-relative and becomes the working directory of the
+#     commands below.
+#   * Because `cwd` is declared, every path filmkit hands over in argv is
+#     absolute: `${produces.video}`, `${inputs.*}` and any `./`-prefixed param
+#     (`props`). `entry` has no `./` prefix, so it is passed through untouched —
+#     that is Remotion's own vocabulary, relative to the project directory.
+#
+# `props` is a plain `./`-path param, so filmkit checks that it exists, folds its
+# content (and the whole `project` directory's) into the node's staleness key,
+# and hands over an absolute path. Values inside it come from `filmkit plan`
+# (resolved scene seconds, output spec) — filmkit never writes the file or the TSX.
+#
+# Do not use render-time clocks, unseeded randomness or network requests inside
+# a composition: the same params must always produce the same frames, or the
+# lock's hashes stop meaning anything.
+#
+# Remotion is optional: without it `filmkit doctor` reports the gap and every
+# project that does not reference this Profile keeps working.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: remotion
+  version: ">=4.0"
+  description: Render a Remotion composition into a clip, or a still frame into an image.
+runtime:
+  type: cli
+  binary: npx
+  # Remotion lives in the video project's node_modules, not on PATH, so the
+  # healthcheck runs there. Adjust if your project directory is not ./video.
+  healthcheck: ["npx", "--no-install", "remotion", "versions"]
+  healthcheckCwd: ./video
+  exitCodes: { "0": ok, "1": invalid-input }
+capabilities:
+  produces: [video, image]
+tasks:
+  render:
+    description: remotion render <entry> <composition> <out>
+    cwd: "${params.project}"
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [project, entry, composition]
+      properties:
+        project:
+          type: string
+          description: Remotion project directory, relative to filmkit.yaml. Becomes the commands' cwd.
+        entry:
+          type: string
+          description: Entry point inside the project (project-relative), e.g. src/index.ts.
+        composition:
+          type: string
+          description: Composition id registered in the entry point.
+        props:
+          type: string
+          description: 'Path to an input-props JSON file (e.g. ./video/props/s1.json). The agent writes it from `filmkit plan`; filmkit checks it exists, hashes it for staleness and passes an absolute path.'
+        codec:
+          enum: [h264, h265, vp8, vp9, av1, prores, h264-mkv, h264-ts, gif]
+          description: Remotion --codec. Default h264.
+        crf:
+          type: integer
+          minimum: 0
+          maximum: 51
+          description: Constant rate factor; lower is better quality.
+        scale:
+          type: number
+          exclusiveMinimum: 0
+          description: Render scale, e.g. 0.5 for a cheap draft.
+        frames:
+          type: string
+          description: 'Frame range, e.g. 0-89. Use it to render exactly the frames an exact-duration scene needs.'
+        concurrency:
+          type: integer
+          minimum: 1
+          description: Parallel frame workers. Does not affect the output.
+        log:
+          enum: [error, warn, info, verbose]
+          description: Remotion --log level.
+    invocation:
+      - npx
+      - "--no-install"
+      - remotion
+      - render
+      - "${params.entry}"
+      - "${params.composition}"
+      - "${produces.video}"
+      - "--overwrite"
+      - "--props=${params.props?}"
+      - "--codec=${params.codec?}"
+      - "--crf=${params.crf?}"
+      - "--scale=${params.scale?}"
+      - "--frames=${params.frames?}"
+      - "--concurrency=${params.concurrency?}"
+      - "--log=${params.log?}"
+  still:
+    description: remotion still <entry> <composition> <out> --frame <n>
+    cwd: "${params.project}"
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [project, entry, composition]
+      properties:
+        project:
+          type: string
+          description: Remotion project directory, relative to filmkit.yaml. Becomes the commands' cwd.
+        entry:
+          type: string
+          description: Entry point inside the project (project-relative).
+        composition:
+          type: string
+          description: Composition id registered in the entry point.
+        props:
+          type: string
+          description: 'Path to an input-props JSON file (e.g. ./video/props/s1.json).'
+        frame:
+          type: integer
+          minimum: 0
+          description: Frame to capture. Default 0.
+        imageFormat:
+          enum: [png, jpeg, webp]
+          description: Remotion --image-format. Default png.
+        scale:
+          type: number
+          exclusiveMinimum: 0
+    invocation:
+      - npx
+      - "--no-install"
+      - remotion
+      - still
+      - "${params.entry}"
+      - "${params.composition}"
+      - "${produces.image}"
+      - "--overwrite"
+      - "--props=${params.props?}"
+      - "--frame=${params.frame?}"
+      - "--image-format=${params.imageFormat}"
+      - "--scale=${params.scale?}"

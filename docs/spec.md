@@ -302,6 +302,7 @@ tasks:        {...}        # §3.3
 | `requires.env` | [string] | 所需环境变量**名**；`doctor` 只报告是否设置 |
 | `requires.binaries` | [string] | 额外二进制 |
 | `healthcheck` | [string] | argv；`doctor` 执行，退出 0 视为健康。仅 `cli` |
+| `healthcheckCwd` | string | `healthcheck` 的工作目录（相对项目目录）。工具只装在某个项目目录内时必填，例如 Remotion 只在它自己的 `node_modules` 里 |
 | `exitCodes` | map<string,ExitClass> | 工具退出码 → `ok` \| `io` \| `invalid-input` \| `missing-dependency` \| `tool-failure`；未映射的非零码归为 `tool-failure` |
 
 ### 3.2 `capabilities`
@@ -318,25 +319,31 @@ tasks:        {...}        # §3.3
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `description` | string | |
+| `cwd` | string | 命令的工作目录，模板（相对项目目录，或含 `${film.dir}`）。声明后，argv 里的文件占位符与 `./` 开头的 params 展开为绝对路径（见 §3.4）。项目目录不存在时：`plan` 列为 `missingFiles`，`validate`/`run` 报错；逃出项目目录一律报错 |
 | `paramsSchema` | JSON Schema (Draft 2020-12) | 必填；MUST 可编译。`additionalProperties` 未声明时 filmkit 视为 `false` |
 | `produces` | [产物类型] | 使用该任务的节点 MUST 声明这些产物 |
 | `validate` | [string] | argv 模板；`filmkit validate` 执行，非零视为该节点无效。仅 `cli` |
 | `invocation` | [string] | argv 模板；`filmkit run` 执行。仅 `cli`。缺失时 `run` 拒绝 |
 
-### 3.4 模板占位符
+### 3.4 模板占位符与工作目录
 
 `validate` / `invocation` / `healthcheck` 的每个 argv 元素可含以下占位符，静态替换，无表达式：
 
 | 占位符 | 值 |
 | --- | --- |
 | `${params.<key>}` | `impl.params` 顶层标量；非标量或缺失 → `invalid-input` |
+| `${params.<key>?}` | 同上，但缺失时**整个 argv 元素被丢弃**——Profile 用它暴露可选工具参数（如 `--crf=${params.crf?}`），不需要条件表达式 |
 | `${produces.<type>}` | 节点 `produces` 中的路径 |
 | `${inputs.<id>}` | 资产 `uri` 或场景主产物路径 |
 | `${node.id}` | 节点 id |
 | `${film.dir}` | 项目目录绝对路径 |
 | `${output.width}` / `${output.height}` / `${output.fps}` | 成片规格 |
 
-其它 `${...}` → `invalid-input`。命令在项目目录中执行，继承当前环境。
+其它 `${...}` → `invalid-input`。占用可选占位符的名字 MUST 匹配 `params|inputs|produces|node|film|output` 之一，且 `${params.x?}` 的 `x` MUST 在该 task 的 `paramsSchema.properties` 中声明——拼错名字不会静默丢参数。
+
+**工作目录（`tasks[].cwd`）**：默认在项目目录内执行。声明 `cwd`（例如 Remotion 项目目录）后，工具不再位于项目目录，因此 filmkit 交给它的**一切路径都展开为绝对路径**：`${produces.*}`、`${inputs.*}` 以及 `./`/`../` 开头的 `params` 值。没有 `./` 前缀的字符串（如 Remotion 的 `entry: src/index.ts`）原样传递，那是工具自己的词汇表、相对 `cwd`。
+
+**输入哈希**：节点的陈旧判定（§4）不只比较 `impl.params` 的规范化 JSON，还比较其中 `./`/`../` 路径值的**内容**——文件取内容哈希，目录递归取（跳过 `node_modules` 与 `.git`），不存在取 `missing`。这样 Agent 改动工具自己的文档（scorekit scene、Remotion 项目）或 props 文件时，节点会正确变为 `stale`，而不是让 `build` 静默复用旧产物。
 
 ### 3.5 内置 Profile
 
@@ -358,7 +365,7 @@ nodes:
     status: ready | missing | stale | partial
     profile: { name, version }
     task: ...
-    paramsHash: sha256(canonical JSON of impl.params)
+    paramsHash: sha256(canonical JSON of impl.params, with ./paths replaced by their content)
     produces:
       <type>: { path, sha256, probe: { duration, width, height, fps, sampleRate, channels, hasAudio, hasVideo } }
 timeline:

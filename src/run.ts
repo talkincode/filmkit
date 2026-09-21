@@ -7,7 +7,7 @@ import { FilmkitError, invalid, type ErrorDetail } from "./errors.ts";
 import { classifyExit, exec, execFailure } from "./exec.ts";
 import type { Analysis } from "./project.ts";
 import { observeNode, toLockNode } from "./state.ts";
-import { expandTemplate } from "./template.ts";
+import { taskCommand } from "./template.ts";
 import { emptyLock, writeLock } from "./lock.ts";
 import type { ProduceType } from "./types.ts";
 
@@ -33,8 +33,9 @@ export function runNode(a: Analysis, id: string): RunResult {
     const st = a.state.nodes.get(dep);
     if (st && st.status !== "ready") throw new FilmkitError(invalid(`input "${dep}" is ${st.status}; produce it first`));
   }
-  const { argv, errors } = expandTemplate(a.loaded, node, task.invocation, `${prof.metadata.name}.tasks.${node.impl.task}.invocation`);
-  if (errors.length) throw new FilmkitError(errors);
+  const cmd = taskCommand(a.loaded, node, task, task.invocation, `${prof.metadata.name}.tasks.${node.impl.task}.invocation`);
+  if (cmd.errors.length) throw new FilmkitError(cmd.errors);
+  const { argv } = cmd;
 
   // Snapshot which produces existed so a failure can leave exactly the previous state.
   const before = new Map<string, boolean>();
@@ -43,7 +44,7 @@ export function runNode(a: Analysis, id: string): RunResult {
     before.set(abs, existsSync(abs));
     mkdirSync(dirname(abs), { recursive: true });
   }
-  const r = exec(argv, { cwd: a.loaded.dir });
+  const r = exec(argv, { cwd: cmd.cwd });
   const cls = classifyExit(r.status, prof.runtime.exitCodes);
   if (cls !== "ok") {
     // Do not keep half-written outputs the tool may have created.

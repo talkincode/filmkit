@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { type LoadedFilm, type Node, nodesOf } from "./film.ts";
-import { hashParams, sha256File } from "./hash.ts";
+import { paramsHash, sha256File } from "./hash.ts";
 import { isStillImage, probeMedia } from "./probe.ts";
 import type { Lock, LockNode, NodeStatus, Probe, ProduceType } from "./types.ts";
 
@@ -19,6 +19,7 @@ export interface ProduceState {
 export interface NodeState {
   node: Node;
   status: NodeStatus;
+  /** impl.params plus the content of every path it references (src/hash.ts). */
   paramsHash: string;
   produces: Partial<Record<ProduceType, ProduceState>>;
   /** From video/audio probes; undefined when nothing with a duration exists yet. */
@@ -44,7 +45,7 @@ export function observe(loaded: LoadedFilm, lock: Lock | undefined, opts: Observ
 }
 
 export function observeNode(loaded: LoadedFilm, node: Node, previous: LockNode | undefined, opts: ObserveOptions): NodeState {
-  const paramsHash = hashParams(node.impl.params);
+  const paramsHashValue = paramsHash(node.impl.params, loaded.dir);
   const produces: NodeState["produces"] = {};
   let existing = 0;
   let total = 0;
@@ -69,9 +70,9 @@ export function observeNode(loaded: LoadedFilm, node: Node, previous: LockNode |
   let status: NodeStatus;
   if (existing === 0) status = "missing";
   else if (existing < total) status = "partial";
-  else if (previous && previous.paramsHash !== paramsHash) status = "stale";
+  else if (previous && previous.paramsHash !== paramsHashValue) status = "stale";
   else status = "ready";
-  return { node, status, paramsHash, produces, naturalDuration: natural };
+  return { node, status, paramsHash: paramsHashValue, produces, naturalDuration: natural };
 }
 
 /** Lock entry for a node in its currently observed state. */
