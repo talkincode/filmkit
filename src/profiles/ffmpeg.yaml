@@ -1,0 +1,29 @@
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: filmkit/ffmpeg
+  version: "1"
+  description: >
+    Generic ffmpeg invocation. params.args is spliced verbatim after
+    `ffmpeg -hide_banner -y`; use ${produces.<type>} and ${inputs.<id>} inside
+    args to reference the node's files.
+runtime:
+  type: cli
+  binary: ffmpeg
+  healthcheck: ["ffmpeg", "-version"]
+  exitCodes: { "0": ok }
+capabilities:
+  produces: [video, image, audio]
+tasks:
+  exec:
+    description: Run ffmpeg with the given arguments.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [args]
+      properties:
+        args:
+          type: array
+          minItems: 1
+          items: { type: string }
+    invocation: ["ffmpeg", "-hide_banner", "-y", "${params.args}"]

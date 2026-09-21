@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://filmkit.dev/schema/v1alpha1/lock.json",
+  "title": "filmkit Lock (filmkit/v1alpha1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "film", "nodes", "timeline"],
+  "properties": {
+    "apiVersion": { "const": "filmkit/v1alpha1" },
+    "kind": { "const": "Lock" },
+    "film": { "$ref": "#/$defs/fileRef" },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "status", "profile", "task", "paramsHash", "produces"],
+        "properties": {
+          "kind": { "enum": ["scene", "asset"] },
+          "status": { "enum": ["ready", "missing", "stale", "partial"] },
+          "profile": { "type": "object", "additionalProperties": false, "required": ["name", "version"], "properties": { "name": { "type": "string" }, "version": { "type": "string" } } },
+          "task": { "type": "string" },
+          "paramsHash": { "type": "string" },
+          "produces": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path"],
+              "properties": {
+                "path": { "type": "string" },
+                "sha256": { "type": "string" },
+                "probe": { "$ref": "#/$defs/probe" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "scenes"],
+      "properties": {
+        "total": { "type": "number" },
+        "scenes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "start", "end", "duration", "estimated"],
+            "properties": {
+              "id": { "type": "string" },
+              "start": { "type": "number" },
+              "end": { "type": "number" },
+              "duration": { "type": "number" },
+              "estimated": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filmSha256", "output", "filtergraph", "ffmpeg", "draft"],
+      "properties": {
+        "filmSha256": { "type": "string" },
+        "output": { "$ref": "#/$defs/fileRef" },
+        "filtergraph": { "$ref": "#/$defs/fileRef" },
+        "ffmpeg": { "type": "object", "additionalProperties": false, "required": ["version"], "properties": { "version": { "type": "string" } } },
+        "draft": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "fileRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": { "path": { "type": "string" }, "sha256": { "type": "string" }, "probe": { "$ref": "#/$defs/probe" } }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration": { "type": "number" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "fps": { "type": "number" },
+        "sampleRate": { "type": "integer" },
+        "channels": { "type": "integer" },
+        "hasAudio": { "type": "boolean" },
+        "hasVideo": { "type": "boolean" },
+        "videoCodec": { "type": "string" },
+        "audioCodec": { "type": "string" },
+        "format": { "type": "string" }
+      }
+    }
+  }
+}

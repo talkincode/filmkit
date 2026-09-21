@@ -1,0 +1,20 @@
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: filmkit/static
+  version: "1"
+  description: >
+    No production step. The scene's produces (an image or a video, optionally
+    audio and an .srt subtitle) are placed directly by a person or an agent;
+    filmkit normalizes them into a clip during build.
+runtime:
+  type: none
+capabilities:
+  produces: [video, image, audio, subtitle]
+tasks:
+  clip:
+    description: Use the files listed in produces as-is.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      properties: {}

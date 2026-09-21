@@ -1,0 +1,76 @@
+// ffprobe wrapper. Returns the small, stable subset of media facts filmkit
+// records in the lock file and uses for timeline derivation.
+
+import { exec, execFailure } from "./exec.ts";
+import { FilmkitError } from "./errors.ts";
+import type { Probe } from "./types.ts";
+
+interface FfprobeJson {
+  format?: { format_name?: string; duration?: string };
+  streams?: {
+    codec_type?: string;
+    codec_name?: string;
+    width?: number;
+    height?: number;
+    r_frame_rate?: string;
+    avg_frame_rate?: string;
+    sample_rate?: string;
+    channels?: number;
+    duration?: string;
+    disposition?: { attached_pic?: number };
+  }[];
+}
+
+export function probeMedia(path: string, cwd: string): Probe {
+  const r = exec(
+    ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+    { cwd },
+  );
+  if (r.status !== 0) throw new FilmkitError(execFailure(r, "tool-failure", `ffprobe ${path}`));
+  let json: FfprobeJson;
+  try {
+    json = JSON.parse(r.stdout) as FfprobeJson;
+  } catch {
+    throw new FilmkitError({ code: "tool-failure", message: `ffprobe ${path}: unparsable JSON output` });
+  }
+  const probe: Probe = { format: json.format?.format_name };
+  const fmtDuration = json.format?.duration ? Number(json.format.duration) : undefined;
+  if (fmtDuration !== undefined && Number.isFinite(fmtDuration)) probe.duration = round(fmtDuration);
+  probe.hasVideo = false;
+  probe.hasAudio = false;
+  for (const s of json.streams ?? []) {
+    if (s.codec_type === "video" && !s.disposition?.attached_pic) {
+      probe.hasVideo = true;
+      probe.width = s.width;
+      probe.height = s.height;
+      probe.videoCodec = s.codec_name;
+      const fps = parseRate(s.r_frame_rate) ?? parseRate(s.avg_frame_rate);
+      if (fps !== undefined) probe.fps = round(fps);
+    } else if (s.codec_type === "audio") {
+      probe.hasAudio = true;
+      probe.sampleRate = s.sample_rate ? Number(s.sample_rate) : undefined;
+      probe.channels = s.channels;
+      probe.audioCodec = s.codec_name;
+      if (probe.duration === undefined && s.duration) probe.duration = round(Number(s.duration));
+    }
+  }
+  return probe;
+}
+
+/** Still images report a video stream; treat them as having no duration. */
+export function isStillImage(p: Probe): boolean {
+  // ffprobe reports single images via the *_pipe demuxers or image2.
+  return Boolean(p.hasVideo) && !p.hasAudio && (p.format?.endsWith("_pipe") || p.format?.includes("image2") || false);
+}
+
+function parseRate(s: string | undefined): number | undefined {
+  if (!s) return undefined;
+  const [n, d] = s.split("/").map(Number);
+  if (!n || !d) return n && Number.isFinite(n) ? n : undefined;
+  return n / d;
+}
+
+/** Millisecond precision keeps lock files and filtergraphs stable across ffprobe builds. */
+export function round(x: number): number {
+  return Math.round(x * 1000) / 1000;
+}
