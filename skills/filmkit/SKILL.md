@@ -271,9 +271,69 @@ scenes:
 - Exploring variants (`-n 4`, comparing models) is your job, not a node: run
   imagine directly, pick a winner, then point `produces.image` at it (or let the
   scene reference the chosen file with `filmkit/static`).
-- `task: text` renders a styled text layer to a transparent PNG (needs an
-  imagine build with resvg support) — handy for cards and watermarks where the
-  local ffmpeg has no `drawtext`.
+- `task: text` renders a styled text layer to a **transparent PNG** — the way to
+  get text into a film when the local ffmpeg has no `drawtext`/libass (see the
+  next section). It needs an imagine build with resvg support.
+
+## Text cards and captions without ffmpeg's drawtext
+
+Two patterns, both just existing filmkit features:
+
+**A text card as a scene** — the PNG is the scene's picture, so the card holds
+for the scene's duration and the film's `output.background` shows through:
+
+```yaml
+scenes:
+  - id: card
+    duration: 2.5
+    durationPolicy: exact
+    impl:
+      profile: imagine
+      task: text
+      params:
+        text: "深夜律所走廊\n源头，是内鬼"   # literal \n is a line break
+        width: 640
+        font: PingFang SC                     # a real font family; CJK needs one that has the glyphs
+        size: 52
+        color: "#ffffff"
+        stroke: "#0b1729"
+        strokeWidth: 3
+        align: center
+        lineHeight: 1.5
+        padding: 24
+    produces: { image: ./build/txt/card.png }
+output:
+  background: "0x0b1729"                      # transparent areas composite onto this
+```
+
+**Text over footage** — a generated asset used by an overlay track, with a time
+window, position, width and opacity:
+
+```yaml
+assets:
+  lower-third:
+    kind: image
+    impl: { profile: imagine, task: text, params: { text: "源头，是内鬼｜第 2 集", width: 640, font: PingFang SC, size: 34, align: left, padding: 12 } }
+    produces: { image: ./build/txt/lower-third.png }
+timeline:
+  tracks:
+    - { id: lower, kind: overlay, asset: lower-third, position: bottom-left, margin: 24, width: 520, opacity: 0.95, from: 0.4, to: 4.8 }
+```
+
+Notes that save a round trip:
+
+- Prerequisite: `imagine text render` needs a resvg-enabled build
+  (`zig build -Dsvg-overlay=true`; macOS: `brew install zig resvg`). The shipped
+  profile header has the exact commands. Without it the task fails with the
+  tool's own advice — `generate` keeps working.
+- The PNG's height is derived from the text; multi-line CJK text can come out
+  slightly clipped, so add `padding`, lower `size`, or check the PNG once.
+- Transparent pictures composite onto `output.background` (a card scene), so
+  pick a background that suits the cards; opaque images keep the plain
+  scale+pad path.
+- Burned *subtitles* (many cues, per-cue timing) are not implemented: render one
+  PNG per cue with this task and declare one overlay track per cue with its
+  `from`/`to`, or move the captions into a HyperFrames/Remotion segment.
 
 ## Profiles: registering a tool
 

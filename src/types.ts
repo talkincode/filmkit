@@ -197,6 +197,7 @@ export interface Probe {
   width?: number;
   height?: number;
   fps?: number;
+  pixelFormat?: string;
   sampleRate?: number;
   channels?: number;
   hasAudio?: boolean;

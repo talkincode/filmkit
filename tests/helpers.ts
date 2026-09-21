@@ -59,6 +59,18 @@ export const media = {
   wav(path: string, seconds: number, freq = 440) {
     ff(["-f", "lavfi", "-i", `sine=frequency=${freq}:duration=${seconds}:sample_rate=22050`, "-ac", "1", path]);
   },
+  /** RGBA PNG: an opaque patch centered in a fully transparent canvas (a stand-in for a text card). */
+  pngAlpha(path: string, w = 64, h = 36, patch = { w: 16, h: 8 }) {
+    const x = Math.floor((w - patch.w) / 2);
+    const y = Math.floor((h - patch.h) / 2);
+    ff([
+      "-f", "lavfi", "-i", `color=c=white:s=${patch.w}x${patch.h}`, "-frames:v", "1",
+      // format=rgba BEFORE pad: padding in rgb24 would make the border opaque black.
+      "-vf", `format=rgba,pad=${w}:${h}:${x}:${y}:color=0x00000000`,
+      "-pix_fmt", "rgba", path,
+    ]);
+  },
+
   /** Odd-sized 24fps clip, optionally with its own audio track. */
   mp4(path: string, seconds: number, opts: { audio?: boolean; w?: number; h?: number } = {}) {
     const args = ["-f", "lavfi", "-i", `testsrc2=size=${opts.w ?? 320}x${opts.h ?? 180}:rate=24:duration=${seconds}`];
@@ -72,6 +84,17 @@ function ff(args: string[]): void {
   mkdirSync(dirname(args[args.length - 1]!), { recursive: true });
   const r = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`test fixture ffmpeg failed: ${r.stderr}`);
+}
+
+/** Read one pixel of a media file at time `at` (seconds), as [r, g, b]. */
+export function pixelAt(path: string, x: number, y: number, at = 0): [number, number, number] {
+  const r = spawnSync(
+    "ffmpeg",
+    ["-v", "error", "-ss", String(at), "-i", path, "-vf", `crop=1:1:${x}:${y},format=rgb24`, "-frames:v", "1", "-f", "rawvideo", "-"],
+    { maxBuffer: 1024 },
+  );
+  if (r.status !== 0 || r.stdout.length < 3) throw new Error(`pixelAt failed: ${r.stderr.toString()}`);
+  return [r.stdout[0]!, r.stdout[1]!, r.stdout[2]!];
 }
 
 export function probe(path: string): { duration: number; width?: number; height?: number; fps?: number; sampleRate?: number; channels?: number; vcodec?: string; acodec?: string; format?: string } {

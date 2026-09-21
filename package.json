@@ -4,12 +4,15 @@
   "description": "Agent-oriented video orchestration compiler: filmkit.yaml -> validate -> plan -> build",
   "license": "MIT",
   "type": "module",
-  "bin": { "filmkit": "./bin/filmkit.ts" },
+  "bin": {
+    "filmkit": "./bin/filmkit.ts"
+  },
   "scripts": {
     "test": "bun test",
-    "check": "bun run typecheck && bun run check:skill",
+    "check": "bun run typecheck && bun run check:skill && bun run check:tracked",
     "typecheck": "bunx tsc --noEmit",
-    "check:skill": "bun run scripts/check-skill-cli.ts"
+    "check:skill": "bun run scripts/check-skill-cli.ts",
+    "check:tracked": "bun run scripts/check-tracked.ts"
   },
   "dependencies": {
     "ajv": "^8.17.1",

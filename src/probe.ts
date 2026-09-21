@@ -14,6 +14,7 @@ interface FfprobeJson {
     height?: number;
     r_frame_rate?: string;
     avg_frame_rate?: string;
+    pix_fmt?: string;
     sample_rate?: string;
     channels?: number;
     duration?: string;
@@ -44,6 +45,7 @@ export function probeMedia(path: string, cwd: string): Probe {
       probe.width = s.width;
       probe.height = s.height;
       probe.videoCodec = s.codec_name;
+      probe.pixelFormat = s.pix_fmt;
       const fps = parseRate(s.r_frame_rate) ?? parseRate(s.avg_frame_rate);
       if (fps !== undefined) probe.fps = round(fps);
     } else if (s.codec_type === "audio") {
@@ -56,6 +58,17 @@ export function probeMedia(path: string, cwd: string): Probe {
   }
   return probe;
 }
+
+/**
+ * True for pixel formats with an alpha channel. A scene whose picture is such
+ * an image is composited onto `output.background`, so a transparent text card
+ * keeps the film's backdrop instead of flattening to black (spec §2.4).
+ */
+export function hasAlpha(p: Probe | undefined): boolean {
+  return p?.pixelFormat !== undefined && ALPHA_FORMATS.test(p.pixelFormat);
+}
+
+const ALPHA_FORMATS = /^(rgba|bgra|argb|abgr|ya8|ya16|rgba64|bgra64|yuva|gbrap|pal8)/;
 
 /** Still images report a video stream; treat them as having no duration. */
 export function isStillImage(p: Probe): boolean {

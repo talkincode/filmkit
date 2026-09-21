@@ -266,6 +266,8 @@ total  = endₙ
 
 每个场景在拼接前被归一化为**中间片段**：`output` 的分辨率（按 `fit`）、`fps`、`pixelFormat`、采样率、声道数、SAR 1:1，音频缺失时补静音；长度恰为 `d`。中间片段的容器与编码由实现决定，但 MUST 无损于最终规格（不得低于成片质量）。
 
+**带 alpha 的画面**：当场景的画面是带 alpha 通道的静帧（`produces.image`，探测到的像素格式含 alpha，如 `rgba`——典型是文字卡）时，MUST 把它合成到 `output.background` 之上（`contain` 时居中，`cover` 时铺满），而不是简单 pad；否则透明区域会被压平成黑色，`output.background` 形同虚设。不带 alpha 的静帧与视频保持 scale+pad / scale+crop 路径。
+
 ### 2.5 转场
 
 `cut`：首尾相接。`crossfade`：视频用 `xfade`（`fade`），音频用 `acrossfade`，时长 `tᵢ`，位置按 §2.1。

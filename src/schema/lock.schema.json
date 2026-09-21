@@ -88,6 +88,7 @@
         "width": { "type": "integer" },
         "height": { "type": "integer" },
         "fps": { "type": "number" },
+        "pixelFormat": { "type": "string" },
         "sampleRate": { "type": "integer" },
         "channels": { "type": "integer" },
         "hasAudio": { "type": "boolean" },
