@@ -164,6 +164,7 @@ timeline:
 - 故意提供不满足规格的产物（错分辨率、缺音轨、时长与 `exact` 计划不符、音乐段落与切点错位），每一种都在 `validate`/`plan`/`build` 的对应阶段被机器拦下，错误信息定位到具体字段或节点。
 - 同一编排文件与产物集合在两台机器上 `build`，`compose.filtergraph.txt` 逐字相同。
 - 任一 `build`/`run` 中途失败（外部工具退出非零、磁盘写入失败），项目目录中没有半成品成片，lock 文件仍与失败前一致。
+- 仓库自身是完整的：`git clone` 一份干净副本后 `bun install && bun test` 全绿，`filmkit init → run → build` 能出片。`bun run check` 里的 `check:tracked` 守护"源码目录里没有被 .gitignore 吞掉的文件"——曾经因为 `.gitignore` 写成未锚定的 `build/`，`src/build/*.ts` 五轮没进仓库，而本地测试因为文件就在磁盘上一直是绿的。
 - 核心数据流（校验 → 时间轴推导 → 工作单 → 合成 → 探测）有自动化测试守护，回归能被 CI 挡下。具体的测试分层由实现者决定；golden 快照、fixture 集与真实 ffmpeg 端到端是建议手段而非强制。
 - filmkit skill 中出现的每个子命令与参数都能在 CLI `--help` 中找到，且有脚本守护这一一致性。
 
