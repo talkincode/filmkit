@@ -207,7 +207,9 @@ describe("remotion profile", () => {
     expect(plan.out!.missingFiles.map((m) => m.path)).toContain("./video");
     const r = p.json("run", "s1");
     expect(r.exitCode).toBe(2);
-    expect(r.err!.errors[0]!.message).toMatch(/cwd "\.\/video" is not a directory/);
+    // `plan` lists the project directory as a file to place, so `run` reports it
+    // that way (with the field path) instead of letting the tool fail.
+    expect(r.err!.errors[0]!.message).toMatch(/referenced file is not in place: \.\/video/);
 
     p.write("filmkit.yaml", remotionFilm("").replace("project: ./video", "project: ../elsewhere"));
     const esc = p.json("validate");

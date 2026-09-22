@@ -384,6 +384,42 @@ tasks:
 Swap `binary`/`invocation` for your command, keep `paramsSchema` closed, and
 filmkit gives you validation, exit-code mapping, staleness and `plan` for free.
 
+## Generating video with an API (Seedance, Gemini Omni)
+
+Two Profiles call a generation API directly — `filmkit run` performs the request,
+waits for an async task when the provider needs one, and writes the file:
+
+```yaml
+scenes:
+  - id: s1
+    duration: 5
+    durationPolicy: min
+    impl:
+      profile: seedance            # or gemini-omni
+      task: text-to-video
+      params:
+        model: doubao-seedance-1-0-pro-250528
+        prompt: 一名侦探走进昏暗的房间，镜头缓慢推进
+        ratio: "16:9"
+        duration: 5
+    produces: { video: ./build/s1.mp4 }
+```
+
+- Keys are environment variables the Profile names: `ARK_API_KEY` for Seedance,
+  `GEMINI_API_KEY` for Gemini Omni. `filmkit doctor` says whether they are set and
+  never prints them; `run` reads them in a worker process, so they do not appear
+  in `ps`, logs, the lock file or any output. Never paste a key into a film.
+- Every run costs money and takes tens of seconds. Prefer a draft resolution
+  while iterating, and keep prompts specific about camera movement and subject
+  motion — vague prompts give weak video.
+- Image-to-video: Gemini Omni takes `firstFrame` / `lastFrame` as `./` paths and
+  sends their bytes inline; Seedance takes `image: https://…` and fetches it
+  itself, so that URL must be publicly reachable (filmkit uploads nothing).
+- These are the only Profiles that need a network key. Everything else
+  (`ffmpeg`, `scorekit`, `qwentts`, HyperFrames, Remotion) stays local.
+- If the provider's response shape changes, `filmkit run` reports what actually
+  came back — fix the path in the Profile (`http.output`) rather than guessing.
+
 ## Text cards and captions without ffmpeg's drawtext
 
 Two patterns, both just existing filmkit features:

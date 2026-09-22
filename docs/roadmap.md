@@ -142,7 +142,8 @@ timeline:
 
 - **不自研任何视频/音频处理。** 缩放、转码、混音、淡入淡出、字幕渲染、转场全部委托 ffmpeg/ffprobe；filmkit 只生成 filtergraph 与命令。原因：这是 ffmpeg 已解决的问题，自研只增加故障面。
 - **不理解任何工具的领域语义。** 核心 Schema 不引入只有某一个工具才能满足的字段；`impl.params` 对核心不透明；工具原生文档（scorekit scene、HyperFrames 项目等）只被引用、不被内嵌或解析。出现“通用视频生成参数层”的冲动时，视为违规。
-- **不做 Agent runtime。** filmkit 不调用 skill、MCP 或 LLM，不生成 prompt，不做任何创意决策；`runtime.type` 为 `skill` / `mcp` / `http` 的节点由 Agent 执行。filmkit 是编译器与账本，不是调度器。
+- **不做 Agent runtime。** filmkit 不调用 skill、MCP 或 LLM，不生成 prompt，不做任何创意决策；`runtime.type` 为 `skill` / `mcp` 的节点由 Agent 执行。filmkit 是编译器与账本，不是调度器。
+- **`runtime.type: http` 必须是声明式、无厂商语义的。** filmkit 可以按 Profile 声明的 create/poll/output 调用生成 API（Seedance、Gemini Omni 等），但核心代码 MUST NOT 出现厂商字段或厂商分支，MUST NOT 自动重试，密钥只声明环境变量名、值只在子进程内读取。任何"为某家 API 写一个客户端类"的改动都违反此条。
 - **无 GUI、无时间轴编辑器、无预览服务器、无常驻进程。** 预览用 `build --draft` 的文件替代。
 - **不持有、不存储、不打印凭据。** Profile 只声明所需环境变量的名字；`doctor` 只报告存在与否。
 - **意图与结果分离，永不写回。** filmkit 不修改 `filmkit.yaml`（`import`、`init` 生成新文件除外）；结果只进 lock 文件。

@@ -155,7 +155,8 @@ function dispatch(command: Command, rest: string[], v: Values): { json: unknown;
       const id = rest[0];
       if (!id) throw new FilmkitError({ code: "invalid-input", message: "run requires a node id: filmkit run <id>" });
       const r = runNode(analyze(v.film), id);
-      return { json: r, text: `ran ${r.id}: ${r.argv.join(" ")}\nproduced ${Object.values(r.produces).join(", ")}` };
+      const how = r.argv ? r.argv.join(" ") : (r.requests ?? []).map((q) => `${q.method} ${q.url} → ${q.status}`).join(", ");
+      return { json: r, text: `ran ${r.id}: ${how}\nproduced ${Object.values(r.produces).join(", ")}` };
     }
     case "build": {
       const r = build(analyze(v.film), { draft: v.draft, dryRun: v["dry-run"] });

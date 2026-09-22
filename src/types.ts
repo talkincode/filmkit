@@ -165,8 +165,31 @@ export interface Film {
   timeline: Timeline;
 }
 
+/** Declarative HTTP call spec for `runtime.type: http` (spec §3.5). */
+export interface HttpRequest {
+  method?: "GET" | "POST";
+  url: string;
+  headers?: Record<string, string>;
+  json?: unknown;
+  /** Seconds to wait for this request. */
+  timeout?: number | string;
+}
+
+export interface HttpAssert {
+  path: string;
+  equals: unknown;
+}
+
+export interface HttpSpec {
+  create: HttpRequest;
+  poll?: HttpRequest & { every?: number | string; timeout?: number | string; until: HttpAssert; failed?: HttpAssert[] };
+  output: { download?: { path: string; headers?: Record<string, string> }; inline?: { path: string; base64?: boolean } };
+}
+
 export interface ProfileTask {
   description?: string;
+  /** Present when runtime.type is http. */
+  http?: HttpSpec;
   /**
    * Working directory for this task's commands. A template (film-dir-relative
    * unless it uses `${film.dir}`). Declaring it also makes file placeholders

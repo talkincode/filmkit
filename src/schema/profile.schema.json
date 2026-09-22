@@ -93,6 +93,61 @@
         "required": ["paramsSchema"],
         "properties": {
           "description": { "type": "string" },
+          "http": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["create", "output"],
+            "description": "How filmkit calls a generation API for this task (runtime.type: http). Declarative: a request, an optional poll loop for async APIs, and where the file comes from. No expressions — only ${env.NAME}, ${params.x}, ${inputs.id} and ${create.path} placeholders.",
+            "properties": {
+              "create": { "$ref": "#/$defs/httpRequest" },
+              "poll": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["url", "until"],
+                "properties": {
+                  "url": { "type": "string", "minLength": 1 },
+                  "method": { "enum": ["GET", "POST"], "default": "GET" },
+                  "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+                  "json": {},
+                  "every": {
+                    "type": ["number", "string"],
+                    "description": "Seconds between polls. Default 5. May be a ${params.x?} placeholder."
+                  },
+                  "timeout": {
+                    "type": ["number", "string"],
+                    "description": "Seconds before giving up. Default 900. May be a ${params.x?} placeholder."
+                  },
+                  "until": { "$ref": "#/$defs/httpAssert" },
+                  "failed": { "type": "array", "items": { "$ref": "#/$defs/httpAssert" } }
+                }
+              },
+              "output": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "download": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path"],
+                    "properties": {
+                      "path": { "type": "string", "minLength": 1, "description": "Path (in the last response) to the file URL to download." },
+                      "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+                    }
+                  },
+                  "inline": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path"],
+                    "properties": {
+                      "path": { "type": "string", "minLength": 1, "description": "Path (in the last response) to the file bytes." },
+                      "base64": { "type": "boolean", "description": "Decode the value as base64 first (Gemini returns video bytes that way)." }
+                    }
+                  }
+                },
+                "oneOf": [{ "required": ["download"] }, { "required": ["inline"] }]
+              }
+            }
+          },
           "cwd": {
             "type": "string",
             "minLength": 1,
@@ -108,6 +163,30 @@
   },
   "$defs": {
     "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "httpRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "method": { "enum": ["GET", "POST"], "default": "POST" },
+        "url": { "type": "string", "minLength": 1 },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "json": {},
+        "timeout": {
+          "type": ["number", "string"],
+          "description": "Seconds to wait for this request. May be a ${params.x?} placeholder."
+        }
+      }
+    },
+    "httpAssert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "equals"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$" },
+        "equals": {}
+      }
+    },
     "produceType": { "enum": ["video", "image", "audio", "subtitle", "file"] }
   }
 }

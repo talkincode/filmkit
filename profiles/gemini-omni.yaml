@@ -1,0 +1,109 @@
+# Ready-to-use Profile for Gemini Omni Flash video generation (Google AI Studio,
+# Interactions API). Synchronous: one request returns the video bytes inline as
+# base64.
+#
+#   https://aistudio.google.com/docs/omni
+#   https://ai.google.dev/api/interactions-api
+#
+# Credentials: export GEMINI_API_KEY="..." (or GOOGLE_API_KEY) — filmkit only
+# names the variable, reports its presence in `doctor`, and reads it inside the
+# worker process, never in an argv or a log line.
+#
+# Use it in a film:
+#   scenes:
+#     - id: s1
+#       duration: 8
+#       durationPolicy: min
+#       impl:
+#         profile: gemini-omni
+#         task: text-to-video
+#         params: { model: gemini-omni-1.1-flash, prompt: 日出时分的山脉航拍，云层缓慢流动, aspectRatio: "9:16", resolution: 1080p }
+#       produces: { video: ./build/s1.mp4 }
+#
+# Image-to-video and interpolation: pass up to two image paths (`firstFrame`,
+# `lastFrame` — ./ paths inside the film) and their bytes are sent inline as
+# base64 parts, so no public URL is needed.
+#
+# Cost and latency: every run spends money; a single call can take a minute or
+# more, which is why `timeout` defaults to 600s.
+#
+# NOTE the one field this Profile could not verify without a key: the path to the
+# inline video bytes in the Interactions response (`steps.0.content.0.data`
+# below, mirroring the SDK's `output_video.data`). If a run reports that the path
+# did not resolve, the error prints what the response actually contained — fix
+# the path here and tell the filmkit repo.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: gemini-omni
+  version: ">=1"
+  description: Gemini Omni Flash video generation (Google Interactions API).
+runtime:
+  type: http
+  requires:
+    env: [GEMINI_API_KEY]
+capabilities:
+  produces: [video]
+tasks:
+  text-to-video:
+    description: Create one video interaction and write the returned bytes.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [prompt, model]
+      properties:
+        model:
+          type: string
+          minLength: 1
+          description: "Model id, e.g. gemini-omni-1.1-flash. Required: the API rejects a request without it."
+        prompt:
+          type: string
+          minLength: 1
+          description: What to generate — describe camera movement, subject motion and effects. The agent writes it.
+        firstFrame:
+          type: string
+          description: "Path to the starting frame (a ./ path). Its bytes are sent inline as base64, so no public URL is needed."
+        lastFrame:
+          type: string
+          description: "Path to the ending frame; with firstFrame this asks for interpolation."
+        aspectRatio:
+          enum: ["16:9", "9:16"]
+          description: Aspect ratio. Default 16:9.
+        resolution:
+          enum: [360p, 720p, 1080p, 4k]
+          description: Output resolution; 1080p and 4k are upscaled.
+        store:
+          type: boolean
+          description: Whether Google stores the interaction (default true server-side). Set false for stateless use.
+        timeout:
+          type: number
+          exclusiveMinimum: 0
+          description: Seconds to wait for the response. Default 600.
+    produces: [video]
+    http:
+      create:
+        method: POST
+        url: https://generativelanguage.googleapis.com/v1beta/interactions
+        timeout: "${params.timeout?}"
+        headers:
+          x-goog-api-key: "${env.GEMINI_API_KEY}"
+        json:
+          model: "${params.model?}"
+          input:
+            - type: image
+              mime_type: "${mimeType:params.firstFrame?}"
+              data: "${base64:params.firstFrame?}"
+            - type: image
+              mime_type: "${mimeType:params.lastFrame?}"
+              data: "${base64:params.lastFrame?}"
+            - type: text
+              text: "${params.prompt}"
+          response_format:
+            type: video
+            aspect_ratio: "${params.aspectRatio?}"
+            resolution: "${params.resolution?}"
+          store: "${params.store?}"
+      output:
+        inline:
+          path: steps.0.content.0.data
+          base64: true

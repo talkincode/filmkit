@@ -121,7 +121,8 @@ filmkit 是一个 **Agent 导向的视频编排编译器**：读 `filmkit.yaml`�
 - MUST NOT 自研任何视频/音频处理（缩放、转码、混音、淡入淡出、字幕渲染、转场）。全部委托 ffmpeg/ffprobe；filmkit 只生成 filtergraph 与命令行。
 - MUST NOT 在核心 Schema 中引入只有某一个工具才能满足的字段；`impl.params` 对核心 MUST 保持不透明，只用所引用 Profile 的 `paramsSchema` 校验。
 - MUST NOT 内嵌或解析工具原生文档（scorekit scene、HyperFrames 项目、Remotion 项目等）。编排文件只引用其路径，内容校验委托给该工具的 `validate` 命令。
-- MUST NOT 调用 skill、MCP 或 LLM，MUST NOT 生成 prompt 或做任何创意决策。`runtime.type` 为 `skill` / `mcp` / `http` 的节点由 Agent 执行；`filmkit run` 只接受 `cli` 类且声明了 `invocation` 的 Profile。
+- MUST NOT 调用 skill、MCP 或 LLM，MUST NOT 生成 prompt 或做任何创意决策。`runtime.type` 为 `skill` / `mcp` 的节点由 Agent 执行。
+- `runtime.type: http` 是唯一的例外，且必须是**声明式**的：`filmkit run` 按 Profile 里声明的 create / poll / output 调用生成 API（spec §3.5）。核心代码 MUST NOT 出现任何厂商字段或厂商分支；MUST NOT 自动重试；MUST NOT 生成 prompt（prompt 由 Agent 写进 `params`）。密钥只以环境变量**名字**声明，值只在子进程内读取，MUST NOT 出现在 argv、日志、lock 或任何输出中。
 
 ## 状态与确定性
 

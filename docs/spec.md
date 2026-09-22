@@ -301,7 +301,7 @@ tasks:        {...}        # §3.3
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `type` | `none` \| `cli` \| `skill` \| `mcp` \| `http` | `none`：无生产步骤，产物由人或 Agent 直接放置；`cli`：可由 `filmkit run` 执行；其余由 Agent 执行 |
+| `type` | `none` \| `cli` \| `skill` \| `mcp` \| `http` | `none`：无生产步骤，产物由人或 Agent 直接放置；`cli`：`filmkit run` 执行命令模板；`http`：`filmkit run` 按声明的请求调用生成 API（§3.5）；`skill` / `mcp` 由 Agent 执行 |
 | `binary` | string | `cli` 必填；`doctor` 在 `PATH` 探测 |
 | `skill` | string | `type: skill` 时的 skill 名 |
 | `requires.env` | [string] | 所需环境变量**名**；`doctor` 只报告是否设置 |
@@ -371,6 +371,51 @@ invocation: [tool, build, "${produces.audio}", "${params.flags?}"]
 **`filmkit/static`** — `runtime.type: none`。任务 `clip`：`paramsSchema` 为空对象，`produces` 不强制（`image` 或 `video`，可配 `audio` / `subtitle`）。用于图片+旁白、现成素材、Agent 用非登记方式产出的文件。归一化在 `build` 中完成。
 
 **`filmkit/ffmpeg`** — `runtime.type: cli`，`binary: ffmpeg`。任务 `exec`：`paramsSchema` = `{ args: [string] }`，`invocation: ["ffmpeg", "-hide_banner", "-y", ...${params.args}]`。这是唯一允许展开数组参数的地方：`${params.args}` 作为单独 argv 元素出现时按元素展开。`exitCodes: {"0": ok}`，其余 `tool-failure`。
+
+### 3.5 `runtime.type: http` — 声明式 API 调用
+
+`http` 类 Profile 由 `filmkit run` 自己执行：创建请求 →（可选）轮询 → 取回文件 → 原子落位。规范是**声明式**的，核心不认识任何厂商语义——没有 Seedance 或 Gemini 的字段出现在 filmkit 代码里，只有占位符与 JSON 路径。
+
+```yaml
+runtime: { type: http, requires: { env: [ARK_API_KEY] } }
+tasks:
+  text-to-video:
+    http:
+      create:
+        method: POST
+        url: https://…/tasks
+        timeout: "${params.timeout?}"            # 秒；同步接口用它兜住长时间调用
+        headers: { Authorization: "Bearer ${env.ARK_API_KEY}" }
+        json: { model: "${params.model}", content: [ { type: text, text: "${params.prompt}" } ] }
+      poll:                                       # 异步接口才有
+        method: GET
+        url: "https://…/tasks/${create.id}"
+        every: 5                                  # 秒，默认 5
+        timeout: "${params.timeout?}"              # 秒，默认 900
+        until: { path: status, equals: succeeded }
+        failed: [ { path: status, equals: failed } ]
+      output:
+        download: { path: "${create.content.video_url}" }   # 或 inline: { path: …, base64: true }
+```
+
+**占位符**（静态替换，无表达式）：
+
+| 形式 | 值 |
+| --- | --- |
+| `${env.NAME}` | 环境变量；未设置 → `invalid-input`，且**永不打印其值** |
+| `${params.x}` / `${params.x?}` | 同 §3.4；`?` 未设置时**丢掉所在的键或数组元素**（所以"可选的首帧图"不会发出空对象） |
+| `${inputs.<id>}` / `${produces.<type>}` / `${node.id}` / `${film.dir}` / `${output.*}` | 同 §3.4 |
+| `${create.<path>}` | 上一次响应里的值（点分路径，数组用数字段），用于轮询 URL 与取件 |
+| `${base64:params.x}` | 把该路径指向的**本地文件**读成 base64 内联（有些 API 要求把图片直接放进请求体） |
+| `${mimeType:params.x}` | 由扩展名推出的媒体类型 |
+
+**退出码映射**：HTTP 401/403 → `3`（凭据问题）；400/404/422 → `2`；429 与 5xx → `4`；网络错误与超时 → `4`。轮询到 `failed` 断言 → `4`，hint 带该响应里的 `error`。
+
+**凭据与进程边界**：`filmkit run` 保持同步，HTTP 工作在一个**子进程**里完成，任务描述经 stdin 传入（不经 argv），子进程从自己继承的环境里读密钥。因此密钥不会出现在 `ps`、日志、lock 文件或任何输出里；`doctor` 只报告 `requires.env` 里的名字是否已设置。
+
+**不重试**：轮询是接口契约（等一个任务完成），不是重试策略；请求失败即失败（§0 铁律：不做重试）。
+
+**产物落位**：先写 `<produces 路径>.part` 再 rename，失败不留半成品——与 ffmpeg 输出同一条规则。
 
 ## 4. `kind: Lock` — `filmkit.lock.yaml`
 

@@ -37,7 +37,11 @@ export function makePlan(a: Analysis): Plan {
     const task = prof.tasks[node.impl.task]!;
     const scene = node.kind === "scene" ? a.loaded.film.scenes.find((x) => x.id === node.id) : undefined;
     const executor: PlanNode["executor"] =
-      prof.runtime.type === "none" ? "place files" : prof.runtime.type === "cli" && task.invocation ? "filmkit run" : "agent";
+      prof.runtime.type === "none"
+        ? "place files"
+        : prof.runtime.type === "http" || (prof.runtime.type === "cli" && task.invocation)
+          ? "filmkit run"
+          : "agent";
     nodes.push({
       id: node.id,
       kind: node.kind,

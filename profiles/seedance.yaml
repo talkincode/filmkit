@@ -1,0 +1,125 @@
+# Ready-to-use Profile for Seedance video generation on Volcengine Ark
+# (CreateContentsGenerationsTasks). Async: create a task, poll it, download the
+# mp4 it produces.
+#
+#   https://api.volcengine.com/api-docs/view?serviceCode=ark&version=2024-01-01&action=CreateContentsGenerationsTasks
+#
+# Credentials come from the environment by name only — filmkit never stores,
+# prints or passes them on a command line:
+#   export ARK_API_KEY="..."          # Ark API key
+# `doctor` reports whether ARK_API_KEY is set; `filmkit run` reads it inside the
+# worker process, and it never appears in `ps`, logs or the lock file.
+#
+# Use it in a film:
+#   scenes:
+#     - id: s1
+#       duration: 5
+#       durationPolicy: min
+#       impl:
+#         profile: seedance
+#         task: text-to-video
+#         params:
+#           model: doubao-seedance-1-0-pro-250528   # or an endpoint id (ep-...)
+#           prompt: 一名侦探走进昏暗的房间，镜头缓慢推进
+#           ratio: "16:9"
+#           duration: 5
+#           resolution: 720p
+#       produces: { video: ./build/s1.mp4 }
+#
+# Image-to-video: pass `image: https://...` — Ark fetches that URL itself, so it
+# must be publicly reachable (filmkit does not upload local files anywhere).
+#
+# Cost and latency: every run spends money on Ark and takes tens of seconds; the
+# poll loop waits up to `timeout` (default 900s) and never retries a failed task.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: seedance
+  version: ">=1"
+  description: Seedance video generation on Volcengine Ark (text-to-video, image-to-video).
+runtime:
+  type: http
+  requires:
+    env: [ARK_API_KEY]
+capabilities:
+  produces: [video]
+tasks:
+  text-to-video:
+    description: Create a Seedance generation task, wait for it, download the mp4.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [model, prompt]
+      properties:
+        model:
+          type: string
+          description: 'Seedance model id (e.g. doubao-seedance-1-0-pro-250528) or an Ark inference endpoint id (ep-...).'
+        prompt:
+          type: string
+          minLength: 1
+          description: What to generate. The agent writes it; filmkit never generates prompts.
+        image:
+          type: string
+          description: "Publicly reachable image URL for the first-frame reference_image. Ark fetches it itself; a local file cannot be sent, so upload or host it first."
+        ratio:
+          enum: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"]
+          description: Aspect ratio. Default 16:9.
+        resolution:
+          enum: [480p, 720p, 1080p]
+          description: Output resolution.
+        duration:
+          type: integer
+          minimum: 1
+          maximum: 30
+          description: Seconds; integer seconds. Use `frames` instead when you need a fractional length.
+        frames:
+          type: integer
+          minimum: 1
+          description: Exact frame count; takes precedence over duration.
+        seed:
+          type: integer
+          description: Seed where supported. Not a reproducibility guarantee.
+        watermark:
+          type: boolean
+          description: Ark watermark. Default true in the API; set false to omit it.
+        timeout:
+          type: number
+          exclusiveMinimum: 0
+          description: Seconds to wait for the task. Default 900.
+    produces: [video]
+    http:
+      create:
+        method: POST
+        url: https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks
+        headers:
+          Authorization: "Bearer ${env.ARK_API_KEY}"
+        json:
+          model: "${params.model}"
+          content:
+            - type: text
+              text: "${params.prompt}"
+            - type: image_url
+              image_url: { url: "${params.image?}" }
+              role: reference_image
+          ratio: "${params.ratio?}"
+          resolution: "${params.resolution?}"
+          duration: "${params.duration?}"
+          frames: "${params.frames?}"
+          seed: "${params.seed?}"
+          watermark: "${params.watermark?}"
+      poll:
+        method: GET
+        url: "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${create.id}"
+        headers:
+          Authorization: "Bearer ${env.ARK_API_KEY}"
+        every: 5
+        timeout: "${params.timeout?}"
+        until: { path: status, equals: succeeded }
+        failed:
+          - { path: status, equals: failed }
+          - { path: status, equals: expired }
+      output:
+        download:
+          path: "${create.content.video_url}"
+          headers:
+            Authorization: "Bearer ${env.ARK_API_KEY}"

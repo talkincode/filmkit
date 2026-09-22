@@ -4,6 +4,33 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## Unreleased
+
+**Video generation APIs, built in and declarative.** `filmkit run` now executes
+`runtime.type: http` Profiles: a request, an optional poll loop for async APIs,
+and where the file comes from — all declared in the Profile, with no provider
+field or provider branch anywhere in filmkit's code (spec §3.5).
+
+- Two Profiles ship: `seedance` (Volcengine Ark, async task + poll + download)
+  and `gemini-omni` (Google Interactions API, synchronous, video returned inline
+  as base64).
+- Keys come from the environment by name only (`ARK_API_KEY`,
+  `GEMINI_API_KEY`): `doctor` reports whether they are set, the worker process
+  reads them, and they never reach an argv, a log line, the lock file or any
+  output.
+- Placeholders stay static: `${env.NAME}`, `${params.x?}`, `${inputs.id}`,
+  `${create.<path>}` (values from the previous response), plus `${base64:...}`
+  and `${mimeType:...}` for APIs that want file bytes inline. An unset `?`
+  placeholder drops its key or array element, so an optional first frame simply
+  does not appear in the request.
+- Failures map to the documented exit codes (401/403 → 3, 4xx → 2, 429/5xx and
+  network errors → 4); polling waits for one task to finish and never retries a
+  failed request; the file lands atomically via a `.part` file.
+- Verified with a real local HTTP server in tests (both shapes) and one real
+  Gemini call that corrected the Profile (the API requires `model` explicitly).
+  `scripts/e2e-video-apis.sh` runs a keyed smoke test and prints the raw response
+  when a shape does not match.
+
 ## 0.1.0 — first release
 
 The first usable version: a `filmkit.yaml` orchestration file, a compiler that

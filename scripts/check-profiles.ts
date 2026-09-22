@@ -38,13 +38,20 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith(".yaml")).sort()) {
     tasks++;
     const where = `${file} ${name}`;
     const declared = Object.keys((task.paramsSchema as { properties?: Record<string, unknown> }).properties ?? {});
-    const templates = [...(task.invocation ?? []), ...(task.validate ?? []), ...(task.cwd ? [task.cwd] : [])];
+    // http specs are templates too: their JSON carries the same placeholders.
+    const templates = [
+      ...(task.invocation ?? []),
+      ...(task.validate ?? []),
+      ...(task.cwd ? [task.cwd] : []),
+      ...(task.http ? [JSON.stringify(task.http)] : []),
+    ];
 
     const used = new Set<string>();
     for (const element of templates) {
       for (const match of element.matchAll(PLACEHOLDER)) {
         const full = match[1]!;
-        if (full.startsWith("params.")) used.add(full.slice("params.".length));
+        // `params.x`, and also `base64:params.x` / `mimeType:params.x`.
+        for (const param of full.matchAll(/(?:^|:)params\.([A-Za-z0-9_]+)/g)) used.add(param[1]!);
       }
     }
 
@@ -57,6 +64,12 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith(".yaml")).sort()) {
       if (!declared.includes(param)) {
         problems.push(`${where}: invocation uses params.${param}, which paramsSchema does not declare`);
       }
+    }
+    if (profile.runtime.type === "http" && !task.http) {
+      problems.push(`${where}: runtime.type is http but the task has no http spec`);
+    }
+    if (profile.runtime.type !== "http" && task.http) {
+      problems.push(`${where}: task declares an http spec but runtime.type is "${profile.runtime.type}"`);
     }
     if (binary && task.invocation && task.invocation[0] !== binary) {
       // doctor probes runtime.binary, so the command must be that same program
