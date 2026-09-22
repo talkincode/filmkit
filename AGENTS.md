@@ -133,7 +133,7 @@ filmkit 是一个 **Agent 导向的视频编排编译器**：读 `filmkit.yaml`�
 
 ## 产品形态
 
-- MUST NOT 引入 GUI、时间轴编辑器、预览服务器、常驻进程或后台守护。预览用 `build --draft` 产出的文件替代。
+- MUST NOT 引入 GUI、时间线编辑器、预览服务器、常驻进程或后台守护。预览与评审用产出的文件替代：成片用 `build --draft`，分镜用 `storyboard` 生成的静态单文件 HTML/JSON（`file://` 可开、无 JS、无网络、无服务端——是文档不是应用）。
 - MUST NOT 持有、存储或打印凭据。Profile 只声明所需环境变量的名字；`doctor` 只报告存在与否。
 - MUST NOT 实现版本控制、资产库、素材市场或远程 Profile registry。
 - MUST NOT 实现并发调度或重试策略。`run` 一次执行一个节点，失败即退出。

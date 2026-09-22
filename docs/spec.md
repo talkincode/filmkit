@@ -476,6 +476,7 @@ build:                         # 仅 build 成功后
 | `schema [--profile\|--lock]` | — | stdout | JSON Schema |
 | `validate` | film, profiles, 文件存在性 | — | 三层校验 + task `validate` 委托 |
 | `plan` | film, profiles, 产物探测 | — | 工作单，见 §6.1 |
+| `storyboard` | film, profiles, 产物探测（不委托 task `validate`） | build/storyboard.json, build/storyboard.html | 分镜评审表，见 §6.3；不写 lock |
 | `run <id>` | 同上 | 产物, lock | 仅 `cli` + `invocation` |
 | `build [--draft]` | 同上 | 中间片段, 成片, filtergraph, srt, lock | |
 | `status` | 同上 | lock | |
@@ -515,6 +516,49 @@ build:                         # 仅 build 成功后
 - 有字幕轨时 `<stem>.srt`
 
 成片先写入 `build/.tmp/` 再重命名到目标；ffprobe 校验失败时目标不落位，退出 `tool-failure`，lock 不写。
+
+### 6.3 `storyboard` 输出
+
+`storyboard` 把 Film 与当前产物状态推导成一份**规则 JSON**（`build/storyboard.json`），再用内置模板渲染成**静态单文件 HTML 分镜表**（`build/storyboard.html`），供付费生成前逐镜校对与后续人工预览。它是纯观察命令：不委托 task `validate`、不执行任何 Profile、**不写 lock**、不修改 `filmkit.yaml`。
+
+```json
+{
+  "film": "filmkit.yaml",
+  "filmSha256": "…64 hex…",
+  "title": "…",
+  "output": { "path": "…", "container": "mp4", "width": 1080, "height": 1920, "fps": 30 },
+  "artifacts": { "json": "build/storyboard.json", "html": "build/storyboard.html" },
+  "timeline": { "total": 31.2, "scenes": [ { "id": "s1", "start": 0, "end": 8, "duration": 8, "estimated": false } ] },
+  "summary": { "shots": 3, "ready": 2, "blocked": 1, "missing": 1, "partial": 0, "stale": 0,
+               "estimated": 0, "missingFiles": 1, "media": { "present": 5, "total": 8 } },
+  "scenes": [
+    {
+      "index": 0, "id": "s1", "start": 0, "end": 8, "duration": 8, "estimated": false,
+      "gapBefore": 0, "transition": { "type": "cut" },
+      "status": "ready", "blocked": false, "intent": { … },
+      "profile": { "name": "filmkit/static", "version": "1", "runtime": "none" },
+      "task": "clip", "executor": "place files", "params": { … },
+      "inputs":   [ { "id": "voice", "kind": "audio", "path": "./build/voice.wav", "exists": true, "href": "../build/voice.wav" } ],
+      "produces": [ { "kind": "image", "path": "./assets/s1.png", "exists": true, "href": "../assets/s1.png", "bytes": 12345 } ]
+    }
+  ],
+  "assets":  [ { "id": "bgm", "kind": "audio", "source": "file", "exists": true, "media": [ … ] } ],
+  "tracks":  [ { "id": "music", "kind": "audio", "asset": "bgm", …, "media": [ … ] } ],
+  "missingFiles": [ { "path": "…", "field": "…", "usedBy": [ … ] } ]
+}
+```
+
+规则：
+
+- **媒体条目统一形状**：`{ kind, path, exists, href?, bytes?, duration?, text? }`。`path` 是编排文件里的原样相对路径；`href` 相对 `build/storyboard.html`（URL 资产原样），**仅在 `exists` 时出现**——HTML 以此决定渲染预览元素还是占位块。
+- `status` 为节点观测状态（`ready|missing|partial|stale`），`blocked` 单列（上游未就绪）；两者都给，HTML 才能分别盖章。
+- `kind: subtitle` 且文件 ≤ 200 KiB 时内联 `text`（原始 SRT），供在分镜表上直接校对字幕文本。
+- `scenes` 按时间轴顺序（`timeline.sequence`），`produces` 按 `PRODUCE_PRIORITY` 排序；`timeline`/`status` 与 `plan`/`status` 同源同值。
+- HTML 是单文件：内联 CSS、无 JS、无网络请求、不含任何绝对路径——可直接拷给他人用 `file://` 打开，图片/音视频按相对路径回放，缺失产物显示占位块。
+- **确定性**：无时间戳；同一 film + 同一产物集合 → `storyboard.json` 与 `storyboard.html` 逐字节相同。
+- **失败不留半成品**：两份产物先全部渲染进内存，再写 `.tmp` 后 rename；任一步失败清理 `.tmp`、已有文件保持原样、lock 不动，退出 `io`。
+
+`--json` 时 stdout 即 `build/storyboard.json` 的内容（逐字节一致），Agent 无需读文件即可消费。
 
 ## 7. 音频段落（`filmkit/cues-v1`）与 `fit: exact` 卡点
 

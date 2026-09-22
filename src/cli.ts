@@ -12,10 +12,11 @@ import { formatPlan, makePlan } from "./plan.ts";
 import { analyze, requireFilesPlaced } from "./project.ts";
 import { runNode } from "./run.ts";
 import { SCHEMAS } from "./schema.ts";
+import { formatStoryboard, writeStoryboard } from "./storyboard.ts";
 import { formatStatus, writeStatus } from "./status.ts";
 import { VERSION } from "./version.ts";
 
-export const COMMANDS = ["init", "schema", "validate", "plan", "run", "build", "status", "doctor", "import", "help"] as const;
+export const COMMANDS = ["init", "schema", "validate", "plan", "storyboard", "run", "build", "status", "doctor", "import", "help"] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export const HELP = `filmkit — agent-oriented video orchestration compiler
@@ -28,6 +29,7 @@ Commands:
                         Print the JSON Schema of filmkit.yaml (or Profile / Lock / Cues)
   validate              Schema, references, timeline and Profile paramsSchema checks
   plan                  Work order: nodes that are missing, stale or blocked, in order
+  storyboard            Review sheet: build/storyboard.json + build/storyboard.html, proof every shot
   run <id>              Execute one node whose Profile is cli with an invocation
   build [--draft] [--dry-run]
                         Normalize every produce, compose along the timeline, verify output
@@ -150,6 +152,10 @@ function dispatch(command: Command, rest: string[], v: Values): { json: unknown;
     case "plan": {
       const plan = makePlan(analyze(v.film));
       return { json: plan, text: formatPlan(plan) };
+    }
+    case "storyboard": {
+      const r = writeStoryboard(analyze(v.film, { delegate: false }));
+      return { json: r.data, text: formatStoryboard(r.data) };
     }
     case "run": {
       const id = rest[0];

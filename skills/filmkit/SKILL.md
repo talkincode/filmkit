@@ -21,8 +21,8 @@ Profile names; filmkit validates, derives the timeline, tells you what is
 missing, and composes everything with ffmpeg into a spec-conformant video.
 
 ```text
-filmkit.yaml ─► validate ─► plan ─► (produce files / filmkit run) ─► build ─► final.mp4
-                                                                       └─► filmkit.lock.yaml
+filmkit.yaml ─► validate ─► plan ─► storyboard ─► (produce files / filmkit run) ─► build ─► final.mp4
+                                                                                         └─► filmkit.lock.yaml
 ```
 
 Full protocol: `docs/spec.md` in the filmkit repository. Schemas: `filmkit schema`.
@@ -93,15 +93,24 @@ Start every session at **Setup check** above — never work blind. Then:
      tool's own parameters; filmkit never does that for you.
    - `timeline.scenes[].estimated: true` marks durations still taken from the
      plan because the scene's media does not exist yet.
-4. **Produce**, then go back to step 3 until `plan` says `nothing to do`.
+4. **Storyboard before you spend**: `filmkit storyboard` writes
+   `build/storyboard.json` + `build/storyboard.html` — every shot with its
+   window, status, intent, params and live previews of whatever already
+   exists. **Before the first paid generation** (and again before the final
+   build) walk the user through that sheet, shot by shot. Confirmation is the
+   default; if the user explicitly says no confirmation is needed, review every
+   shot yourself against the sheet and keep going — but always leave
+   `build/storyboard.html` regenerated so a human can preview later. Details:
+   "Storyboard: proof every shot before you spend" below.
+5. **Produce**, then go back to step 3 until `plan` says `nothing to do`.
    Produce exactly the nodes `plan` lists — a node it did not list is already
    done, and running it again repeats spent money (see "Cost discipline"
    below). Before the first `filmkit run` of a node whose Profile calls a
-   paid API, confirm its `params` with the user.
-5. **Build**: `filmkit build --draft` for a fast low-res preview, `filmkit build`
+   paid API, confirm its `params` with the user (via the storyboard sheet).
+6. **Build**: `filmkit build --draft` for a fast low-res preview, `filmkit build`
    for the final. Output is verified with ffprobe against `output`; on any
    mismatch nothing is written to the target path.
-6. **Check**: `filmkit status` writes `filmkit.lock.yaml` and shows which
+7. **Check**: `filmkit status` writes `filmkit.lock.yaml` and shows which
    produces exist and whether the build is up to date.
 
 ## Writing filmkit.yaml
@@ -425,6 +434,58 @@ tasks:
 Swap `binary`/`invocation` for your command, keep `paramsSchema` closed, and
 filmkit gives you validation, exit-code mapping, staleness and `plan` for free.
 
+## Storyboard: proof every shot before you spend
+
+Before the first paid generation — and again once every produce is in place,
+before the final build — turn the film into a **Storyboard Sheet** and check
+it shot by shot:
+
+```bash
+filmkit storyboard        # writes build/storyboard.json + build/storyboard.html
+filmkit --json storyboard # the same JSON on stdout, byte-identical to the file
+```
+
+Two artifacts from one command:
+
+- **`build/storyboard.json`** — the film as regular data: every shot with its
+  timeline window, `status` (`ready|missing|partial|stale`) + `blocked`,
+  `intent`, `params`, profile/task/executor, and for *every* file it touches a
+  uniform `{kind, path, exists, href?}` entry (`href` relative to the HTML,
+  present only when the file is there). Subtitle files are embedded as text so
+  you can proof cues without opening them. It never writes the lock and never
+  runs a tool.
+- **`build/storyboard.html`** — a single self-contained page (inline CSS, no
+  JS, no network): a proportional timeline strip, one card per shot with
+  images previewed inline, audio/video played back through native controls,
+  and missing produces shown as explicit placeholders — never a broken
+  element. Open it with `file://`; it copies cleanly to anyone with the
+  project directory.
+
+**Confirmation protocol — default is to confirm:**
+
+1. Generate the sheet and walk the user through it **shot by shot** — order
+   and durations on the strip, then per shot: does `intent` say what the shot
+   is for, are `params` the values we want to send (prompt, model, size/ratio,
+   duration), does existing media preview/play correctly, what is still a
+   placeholder. For paid Profiles this *is* the param confirmation from
+   "Cost discipline": the sheet shows node id, params and cost drivers in one
+   place.
+2. Wait for the user's go-ahead before the first paid run. Editing after a run
+   means repurchasing (see below), so disagreements are cheapest to catch here.
+3. **If the user explicitly says not to ask** ("不用确认 / don't wait for me"):
+   do the same review *yourself* against the sheet — check every shot's
+   intent, params and timeline, and state briefly what you verified — then
+   proceed without waiting. Confirmation waived, review not waived.
+4. Either way, **keep `build/storyboard.html` regenerated** (re-run
+   `filmkit storyboard` after each production round and before the final
+   build): it is the artifact a human opens later to preview what was made,
+   whether or not they were asked in the moment.
+
+The sheet reflects the files on disk at generation time — a shot that turned
+`ready` after your last run only previews correctly once you re-run
+`filmkit storyboard`. It is a review artifact: never hand-edit it, and never
+treat a stale sheet as current state (`filmkit status` owns that truth).
+
 ## Cost discipline: confirm params, plan paths, never re-buy
 
 Some Profiles spend money per run — `seedance`, `gemini-omni`,
@@ -446,7 +507,11 @@ Therefore, while orchestrating:
 1. **Confirm generation params before the first paid run.** Show the user
    the node id, model, duration, ratio/size and final prompt, and get the
    go-ahead: params are free to edit until the first run and a repurchase
-   after it. Duration and model drive the cost; a wrong ratio wastes the
+   after it. The Storyboard Sheet (see "Storyboard: proof every shot before
+   you spend" above) is the natural place for this: `filmkit storyboard`
+   puts every shot's `params` next to its `intent` on one reviewable page —
+   confirmed with the user, or reviewed by you when they have waived
+   confirmation. Duration and model drive the cost; a wrong ratio wastes the
    whole call. `filmkit validate` is free and, where the Profile declares
    it, delegates to the tool's own dry-run (imagine prints the request body
    without calling the API) — use it until the request shape is certainly
@@ -645,7 +710,8 @@ tasks:
 | `filmkit init [dir]` | Skeleton project; refuses a non-empty directory |
 | `filmkit schema [--profile\|--lock]` | JSON Schema of Film / Profile / Lock |
 | `filmkit validate [--no-delegate]` | Schema + references + timeline + Profile paramsSchema (+ tool `validate`) |
-| `filmkit plan` | Work order (nodes not ready, topological order) |
+| `plan` | Work order (nodes not ready, topological order) |
+| `filmkit storyboard` | Storyboard Sheet: `build/storyboard.json` + reviewable `build/storyboard.html` |
 | `filmkit run <id>` | Execute one cli node; records result in the lock |
 | `filmkit build [--draft] [--dry-run]` | Normalize, compose, verify; `--dry-run` only writes `build/compose.filtergraph.txt` |
 | `filmkit status` | Observe produces, write lock, report |

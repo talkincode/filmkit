@@ -22,8 +22,9 @@ filmkit 是一个 **Agent 导向的视频编排编译器**。Agent 用一份 YAM
    ┌──────────────┐   ┌─────────▼──────────┐   ┌───────────────────────┐
    │ Profile 文档  │◄──│  filmkit CLI        │──►│ filmkit.lock.yaml     │
    │ (工具能力登记) │   │  validate · plan    │   │ (实际产物 / status,    │
-   │ 本地 / 全局    │   │  run · build        │   │  filmkit 写, Agent 只读)│
-   └──────────────┘   │  status · doctor    │   └───────────────────────┘
+   │ 本地 / 全局    │   │  storyboard         │   │  filmkit 写, Agent 只读)│
+   └──────────────┘   │  run · build        │   └───────────────────────┘
+                      │  status · doctor    │
                       │  schema · import    │
                       └───┬───────────┬────┘
             plan 工作单    │           │ run (仅 cli 类 profile) / build
@@ -93,6 +94,7 @@ timeline:
 - **validate**：Schema → 引用完整性/命名空间/产物路径唯一/DAG 无环 → 时间轴推导检查 → `impl.params` 对 `paramsSchema` → cli Profile 的 `validate` 模板委托（`src/film.ts`、`src/project.ts`）。错误带 `field` 与 YAML 行号，`--json` 机器可读。
 - **时间轴推导**：主轨顺序、转场、显式 `start` 垫片、`durationPolicy` `auto|exact|min`、叠加轨范围检查（`src/timeline.ts`）。
 - **plan**：拓扑序工作单，只列 `missing|partial|stale|blocked`，附 `executor`（`filmkit run` / `agent` / `place files`）、参数、输入路径、`intent`、已解析时长（`src/plan.ts`）。
+- **storyboard（分镜评审表）**：`filmkit storyboard` 把 film + 当前产物状态推导成规则 JSON（`build/storyboard.json`：逐镜时间窗、`status`/`blocked`、`intent`、`params`、统一形状的 `{kind, path, exists, href}` 媒体条目、字幕文本内联）并经内置模板渲染成单文件静态 HTML（`build/storyboard.html`：等比时间轴条、逐镜卡片、图片内联预览、音视频原生回放、缺失产物占位）。只观察不执行：不委托 task `validate`、不写 lock、无时间戳、`.tmp` + rename 原子落位（`src/storyboard.ts`、`src/storyboard/template.ts`）。skill 规定付费生成前用它逐镜校对（默认与用户确认，用户明示免确认则 Agent 自查，但 HTML 始终保留供后续人工预览）。
 - **run**：仅 cli + `invocation`；退出码按 Profile `exitCodes` 映射；失败时清理新建产物、不写 lock（`src/run.ts`）。
 - **build**：归一化每场景为中间片段（分辨率/fps/像素格式/采样率/声道/时长）→ `concat` / `xfade`+`acrossfade` → 音频轨（loop/trim、volume、fade、delay）→ 图片叠加轨 → 字幕合并（sidecar / embed）→ 编码 → ffprobe 校验 `output` → 原子落位 → lock。`build/compose.filtergraph.txt` 逐字确定；`--draft`、`--dry-run`（`src/build/`）。
 - **status / lock**：探测产物写 `filmkit.lock.yaml`（无时间戳），报告就绪与成片是否过期（`src/status.ts`、`src/lock.ts`）。
@@ -129,6 +131,7 @@ timeline:
 12. **`filmkit schema [--profile]`** — 导出 Film / Profile 的 JSON Schema。
 13. **`filmkit init`** — 项目骨架、内置 Profile、示例编排文件。
 14. **`filmkit import hyperstory <schema.json>`** — 单向导入现有 Video Composition Schema，导入结果必须通过 `validate`。
+21. **`filmkit storyboard`** — 分镜评审表（Storyboard Sheet）：从编排文件 + 当前产物状态推导规则 JSON（`build/storyboard.json`，`--json` 时与 stdout 逐字节一致），经内置 HTML 模板渲染为单文件静态预览 `build/storyboard.html`：等比时间轴条、逐镜卡片（时间窗、status/blocked 印章、intent、params、executor）、图片内联预览、音频/视频片段原生回放、字幕文本内联、缺失产物显式占位、资产/轨道/缺失文件分区。纯观察：不执行工具、不委托 task `validate`、不写 lock、无时间戳（确定性）、`.tmp`+rename 原子落位失败无半成品。配套 skill 流程：付费生成前逐镜校对——默认与用户确认；用户明确不需要确认时 Agent 内部评审，但仍保留 HTML 供后续人工预览。协议见 `docs/spec.md` §6.3。
 20. **qwentts 集成** — 随仓库分发的 `profiles/qwentts.yaml`：`speak`（文本 → 旁白音频），覆盖三条路线（CustomVoice 预置音色 + `emotionIntensity`/`instruct`；`model: base` + `referenceAudio`/`refText` 克隆；`voice-design` 用描述建声），参数收口到 `paramsSchema`。模型权重、`QWEN3_TTS_HOME`/`QWEN3_TTS_MODELS_DIR` 运行时与私人音色库都由工具自己管理（Profile 头部照 qwentts README 写明安装步骤），filmkit 只声明 binary 与 `--print-models` 体检。
 19. **旁白与字幕链** — 文本 → 语音 → 转录 → SRT → 成片，全程本地工具。协议侧：`scenes[].audio` 引用旁白资产（与 `produces.audio` 互斥，形成隐式依赖）；字幕轨 `source` 支持整片 SRT 资产；`./` 路径参数指向另一节点的产物时自动成为依赖而不是"缺失文件"；目录哈希跳过所有已声明产物。Profile 侧：`tts`（Kokoro）、`transcribe` + `subtitles`（两段式，因为工具要两步）、`matte-image`（抠像出 alpha PNG）。
 18. **HyperFrames 集成** — 随仓库分发的 `profiles/hyperframes.yaml`：`render`（一个 composition → 一个片段，可选 `quality`/`composition`/`format`/`fps`/`variables`/`strict`），项目目录即 `cwd`，变量文件作为 `./` 路径参数（检查 + 哈希 + 绝对路径）；`validate` 委托 `hyperframes check` 作为项目内容闸门；`doctor` 断言 `checks[]` 里的 Chrome 项。附带 `scripts/e2e-hyperframes.sh` 与 stub 测试。渲染前先 `hyperframes preview` 取得人工批准，是工具自身的约定，Profile 头部写明。
@@ -144,7 +147,7 @@ timeline:
 - **不理解任何工具的领域语义。** 核心 Schema 不引入只有某一个工具才能满足的字段；`impl.params` 对核心不透明；工具原生文档（scorekit scene、HyperFrames 项目等）只被引用、不被内嵌或解析。出现“通用视频生成参数层”的冲动时，视为违规。
 - **不做 Agent runtime。** filmkit 不调用 skill、MCP 或 LLM，不生成 prompt，不做任何创意决策；`runtime.type` 为 `skill` / `mcp` 的节点由 Agent 执行。filmkit 是编译器与账本，不是调度器。
 - **`runtime.type: http` 必须是声明式、无厂商语义的。** filmkit 可以按 Profile 声明的 create/poll/output 调用生成 API（Seedance、Gemini Omni 等），但核心代码 MUST NOT 出现厂商字段或厂商分支，MUST NOT 自动重试，密钥只声明环境变量名、值只在子进程内读取。任何"为某家 API 写一个客户端类"的改动都违反此条。
-- **无 GUI、无时间轴编辑器、无预览服务器、无常驻进程。** 预览用 `build --draft` 的文件替代。
+- **无 GUI、无时间线编辑器、无预览服务器、无常驻进程。** 预览与评审一律用**产出的文件**替代：成片预览用 `build --draft`，分镜评审用 `storyboard` 生成的静态 HTML/JSON。`storyboard` 产物必须是可 `file://` 打开、无 JS、无网络、无服务端的单文件——它是文档不是应用；任何走向可编辑、需起服务、带交互状态的“预览”都违规。
 - **不持有、不存储、不打印凭据。** Profile 只声明所需环境变量的名字；`doctor` 只报告存在与否。
 - **意图与结果分离，永不写回。** filmkit 不修改 `filmkit.yaml`（`import`、`init` 生成新文件除外）；结果只进 lock 文件。
 - **不引入模板表达式语言。** 只有 `${vars.x}` 静态替换；不支持表达式、条件、循环、路径索引。派生值（如已解析时长）只出现在 `plan` 输出里。
@@ -201,6 +204,7 @@ timeline:
 | 12. schema 导出 | 低 | ✅ 三份 Schema 可被 Draft 2020-12 校验器编译 | 不适用（无失败分支） | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "schema exports load" |
 | 13. init | 中 | ✅ 骨架直接 validate/run/build 通过 | ✅ 非空目录拒绝 | 不适用 | ✅ 拒绝时不写任何文件 | `tests/pipeline.test.ts` "init + schema" |
 | 14. import hyperstory | 中 | ✅ schema → filmkit.yaml → plan → 补齐文件 → validate → build 出片 | ✅ 空 scenes / 无时长 / 无图无视频 / 未知 kind / 文件不存在 / 拒绝覆盖 | 不适用 | ✅ 目标已存在时拒绝写入且不修改原文件；`--force` 才覆盖 | `tests/import.test.ts` 五例 |
+| 21. storyboard 分镜评审（JSON + 静态 HTML） | 中 | ✅ 规则 JSON（状态/href/探测时长/字幕文本/汇总）+ HTML 预览与回放、缺产物占位、时间轴锚点；与 plan 时间轴同源、逐字节确定、不写 lock | ✅ 非法 film → 退出 2 零产物；写入目标被占 → 退出 1 无 `.tmp` 残留、无半成品 | 不适用 | ✅ 失败后已有产物与 lock 逐字不变（tmp+rename，两次失败路径均断言） | `tests/storyboard.test.ts` 五例 |
 | 16. Remotion 集成（render / still + cwd + 可选占位符 + 输入哈希） | 高 | ✅ stub 全链路（validate→plan→run→build）与真实 Remotion 端到端（`scripts/e2e-remotion.sh`） | ✅ cwd 缺失/逃出项目 / 未声明参数名 / 缺 props / 错 flag | 不适用 | ✅ run 失败无产物残留、lock 不变（沿用 run 的恢复路径） | `tests/remotion.test.ts` 八例；`scripts/e2e-remotion.sh`（真实 Remotion 4.0.526） |
 | 17. imagine 集成（generate / text + 文字卡 + dry-run 预检 + healthcheckExpect） | 高 | ✅ stub 全链路（validate 用 --dry-run 零消耗、run 出图、build 合成）；文字卡：透明 PNG → 卡片场景合成到 `output.background`（像素断言）与叠加轨窗口；真实 `imagine text`（resvg 构建）端到端 | ✅ 未声明参数 / 缺凭据（tool-failure，无产物残留）/ 工具 usage error（invalid-input）/ 无就绪模型 / healthcheck 非 JSON / 无 resvg 的构建（工具自己的建议进 hint） | 不适用 | ✅ run 失败无产物残留、lock 不变 | `tests/imagine.test.ts` 六例；`tests/text-cards.test.ts` 五例；`scripts/e2e-imagine-text.sh --build` |
 | 18. HyperFrames 集成（render + check 委托 + healthcheckExpect.select） | 高 | ✅ stub 全链路（validate 委托 check、run 渲染、build 合成）与真实 HyperFrames 端到端（`scripts/e2e-hyperframes.sh`，0.8.58） | ✅ 未声明/越界参数 / 项目内容问题（check 退出 1，带工具 findings）/ 渲染失败（无产物、lock 不变）/ 缺 Chrome（doctor 退出 3）/ 缺变量文件 | 不适用 | ✅ run 失败无产物残留、lock 逐字不变 | `tests/hyperframes.test.ts` 六例；`scripts/e2e-hyperframes.sh` |
@@ -208,4 +212,4 @@ timeline:
 | 20. qwentts 集成（speak + 三条音色路线） | 高 | ✅ stub 五例（含克隆路线、缺失参考音频、工具失败、参数拼错、doctor 体检）与真实端到端（`scripts/e2e-qwentts.sh`：真 Qwen3-TTS 合成 4.72s，场景时长跟随旁白，成片 4.72s） | ✅ 未声明参数 / 参考音频缺失（missingFiles）/ 模型权重缺失（tool-failure，无产物残留）/ 旧版 CLI（脚本会提示重新 symlink） | 不适用 | ✅ run 失败无产物残留、lock 不变 | `tests/qwentts.test.ts` 五例；`scripts/e2e-qwentts.sh` |
 | 15. filmkit skill 与 CLI 一致性 | 低 | ✅ `bun run check:skill` | 不适用 | 不适用 | 不适用（文档） | `scripts/check-skill-cli.ts` |
 
-本矩阵当前没有 `❌ 缺口`：15 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。
+本矩阵当前没有 `❌ 缺口`：21 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。

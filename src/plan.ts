@@ -3,7 +3,7 @@
 import { inputPath } from "./film.ts";
 import type { Analysis } from "./project.ts";
 import type { MissingFile } from "./project.ts";
-import type { Intent, NodeStatus, RuntimeType } from "./types.ts";
+import type { Intent, NodeStatus, Profile, ProfileTask, RuntimeType } from "./types.ts";
 
 export interface PlanNode {
   id: string;
@@ -27,6 +27,18 @@ export interface Plan {
   missingFiles: MissingFile[];
 }
 
+/**
+ * Who executes a node. Shared by `plan` and `storyboard` so the work order and
+ * the review sheet can never disagree about it.
+ */
+export function executorFor(prof: Profile, task: ProfileTask): PlanNode["executor"] {
+  return prof.runtime.type === "none"
+    ? "place files"
+    : prof.runtime.type === "http" || (prof.runtime.type === "cli" && task.invocation)
+      ? "filmkit run"
+      : "agent";
+}
+
 export function makePlan(a: Analysis): Plan {
   const nodes: PlanNode[] = [];
   for (const node of a.order) {
@@ -36,12 +48,7 @@ export function makePlan(a: Analysis): Plan {
     const prof = a.loaded.profiles.get(node.impl.profile)!.profile;
     const task = prof.tasks[node.impl.task]!;
     const scene = node.kind === "scene" ? a.loaded.film.scenes.find((x) => x.id === node.id) : undefined;
-    const executor: PlanNode["executor"] =
-      prof.runtime.type === "none"
-        ? "place files"
-        : prof.runtime.type === "http" || (prof.runtime.type === "cli" && task.invocation)
-          ? "filmkit run"
-          : "agent";
+    const executor = executorFor(prof, task);
     nodes.push({
       id: node.id,
       kind: node.kind,

@@ -4,6 +4,32 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## Unreleased
+
+- **`filmkit storyboard` — the Storyboard Sheet.** Before the first paid
+  generation (and again before the final build), derive the film plus current
+  produces into a regular JSON document (`build/storyboard.json`) and render it
+  through a built-in template into a static single-file review sheet
+  (`build/storyboard.html`): a proportional timeline strip, one card per shot
+  with status/blocked stamps, intent, params and executor, inline image
+  previews, native audio/video playback, embedded subtitle text, and explicit
+  placeholders for every produce that does not exist yet. URLs stay relative,
+  so the sheet opens from `file://` and travels with the project.
+- The command observes only: it never runs a tool, never delegates task
+  `validate`, never writes the lock, and carries no timestamps — same film and
+  same produces give byte-identical output (spec §6.3). Both artifacts are
+  rendered in memory first, then written via `.tmp` + rename, so a failure
+  leaves the previous sheet intact and no litter.
+- Skill: a storyboard gate now sits in the core loop between `plan` and
+  producing. Default protocol is shot-by-shot confirmation with the user on
+  the sheet; if the user explicitly waives confirmation, the agent reviews
+  every shot against the sheet itself and proceeds — but the HTML is always
+  kept regenerated so a human can preview later either way.
+- Iron rule sharpened (AGENTS.md, roadmap): previews/reviews are *files*
+  (`build --draft`, `storyboard`'s static HTML) — no GUI, no server, no JS in
+  the artifact; anything that wants to become editable or hosted is a
+  violation.
+
 ## 0.2.0 — declarative video generation APIs
 
 **Video generation APIs, built in and declarative.** `filmkit run` now executes

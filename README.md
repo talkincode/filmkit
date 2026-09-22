@@ -3,7 +3,7 @@
 **Agent 导向的视频编排编译器。** 用一份 YAML 编排文件声明一部视频——场景序列、时间轴、每个场景由哪个工具怎么实现、成片规格——由 Agent 调用工具产出素材，filmkit 校验编排、推导时间轴、给出工作单，并用 ffmpeg 把全部产物合成为成片。全程命令行，无 GUI，是一条流水线而不是一个编辑器。
 
 ```text
-filmkit.yaml ─► validate ─► plan ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
+filmkit.yaml ─► validate ─► plan ─► storyboard ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
 ```
 
 > 状态：`0.2.0`（声明式视频生成 API + 发布链路）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
@@ -33,6 +33,7 @@ bun install
 bun bin/filmkit.ts init demo && cd demo
 bun ../bin/filmkit.ts validate
 bun ../bin/filmkit.ts plan          # 告诉你还缺什么、谁来做
+bun ../bin/filmkit.ts storyboard    # 分镜评审表：build/storyboard.json + .html（付费生成前逐镜校对）
 bun ../bin/filmkit.ts run bgm       # cli 类 Profile 由 filmkit 执行
 bun ../bin/filmkit.ts build         # ffmpeg 合成并用 ffprobe 校验 output
 bun ../bin/filmkit.ts status
