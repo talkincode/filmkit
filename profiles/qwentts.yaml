@@ -52,8 +52,8 @@ metadata:
 runtime:
   type: cli
   binary: qwen3-tts-ai
-  # Prints aliases and speakers and exits: proves the script runs without
-  # loading a model or spending generation time.
+  # Prints aliases, speakers and the resolved runtime paths, then exits: proves
+  # the script runs without loading a model or spending generation time.
   healthcheck: ["qwen3-tts-ai", "--print-models"]
   exitCodes: { "0": ok, "2": invalid-input }
 capabilities:
@@ -84,7 +84,7 @@ tasks:
           description: Style/emotion instruction for customvoice, or the voice description for voice-design.
         emotionIntensity:
           enum: [auto, flat, low, medium, high, extreme]
-          description: Emotion strength. Leave at auto unless the scene calls for more.
+          description: Emotion strength (customvoice only). Leave at auto unless the scene calls for more.
         speed:
           type: number
           exclusiveMinimum: 0
@@ -96,15 +96,60 @@ tasks:
           type: number
           exclusiveMinimum: 0
           maximum: 1
+        topK:
+          type: integer
+          minimum: 0
+          description: Top-k sampling.
+        repetitionPenalty:
+          type: number
+          exclusiveMinimum: 0
+          description: Repetition penalty; raise it when the voice loops.
+        maxTokens:
+          type: integer
+          minimum: 1
+          description: Generation length ceiling; mode sets a default (fast 1200, quality 4096).
+        langCode:
+          type: string
+          description: 'Language hint, e.g. auto, zh, en, Chinese. Default auto.'
         referenceAudio:
           type: string
           description: 'Reference clip for base cloning (a ./ path inside the film, or an absolute path to a voice library file).'
         refText:
           type: string
           description: Exact transcript of referenceAudio, when you know it. Never invent it.
-        allowDownload:
-          type: boolean
-          description: Allow fetching missing model weights from Hugging Face. Default false, so nothing downloads behind your back.
+        sttModel:
+          type: string
+          description: STT model used by auto-transcribing the reference clip.
+        flags:
+          type: array
+          description: 'Valueless CLI flags, named verbatim. The tool takes these without a value (`--allow-download`, `--auto-transcribe-reference`), so they cannot be written as `--flag=<bool>`.'
+          items:
+            enum: [--allow-download, --auto-transcribe-reference]
+      # The tool's three routes are mutually exclusive, and it fails on wrong
+      # combinations itself. Note the `required` guard in every `if`: JSON Schema
+      # `properties` inside `if` also matches when the property is absent, so
+      # without it the rule would fire for every film that omits the key. Those same rules are mirrored here so a mistake
+      # fails `filmkit validate` instead of spending a generation. (`instruct`
+      # on base is only a warning in the tool, so it is allowed here too.)
+      allOf:
+        - if: { required: [model], properties: { model: { const: voice-design } } }
+          then:
+            required: [instruct]
+            properties: { voice: false, referenceAudio: false, refText: false, emotionIntensity: false }
+        - if: { required: [model], properties: { model: { const: voicedesign } } }
+          then:
+            required: [instruct]
+            properties: { voice: false, referenceAudio: false, refText: false, emotionIntensity: false }
+        - if: { required: [model], properties: { model: { const: customvoice } } }
+          then:
+            properties: { referenceAudio: false, refText: false }
+        - if: { required: [model], properties: { model: { const: custom-voice } } }
+          then:
+            properties: { referenceAudio: false, refText: false }
+        - if: { required: [refText] }
+          then: { required: [referenceAudio] }
+        - if: { required: [flags], properties: { flags: { contains: { const: --auto-transcribe-reference } } } }
+          then: { required: [referenceAudio] }
     produces: [audio]
     invocation:
       - qwen3-tts-ai
@@ -118,6 +163,11 @@ tasks:
       - "--speed=${params.speed?}"
       - "--temperature=${params.temperature?}"
       - "--top-p=${params.topP?}"
+      - "--top-k=${params.topK?}"
+      - "--repetition-penalty=${params.repetitionPenalty?}"
+      - "--max-tokens=${params.maxTokens?}"
+      - "--lang-code=${params.langCode?}"
       - "--reference-audio=${params.referenceAudio?}"
       - "--ref-text=${params.refText?}"
-      - "--allow-download=${params.allowDownload?}"
+      - "--stt-model=${params.sttModel?}"
+      - "${params.flags?}"

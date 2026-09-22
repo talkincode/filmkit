@@ -105,6 +105,7 @@ describe("scorekit profile + fit: exact (stub)", () => {
       expect(plan.out!.nodes.map((n) => [n.id, n.executor])).toEqual([["music", "filmkit run"]]);
 
       const run = p.json<{ argv: string[] }>("run", "music");
+      expect(run.err?.errors?.map((e) => e.message).join("\n")).toBeUndefined();
       expect(run.exitCode).toBe(0);
       expect(run.out!.argv).toEqual(["scorekit", "build", "./music/theme.yaml", "-o", "./build/music/theme.ogg"]);
 
@@ -135,6 +136,31 @@ describe("scorekit profile + fit: exact (stub)", () => {
     } finally {
       process.env.PATH = prevPath;
       rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("renderer, orchestration and valueless flags reach the command", () => {
+    p.write("music/theme.yaml", theme);
+    p.write(
+      "filmkit.yaml",
+      filmkitYaml({ track: "{ id: music, kind: audio, asset: music, fit: loop }" }).replace(
+        "params: { scene: ./music/theme.yaml }",
+        "params: { scene: ./music/theme.yaml, renderer: sfizz, orchestration: ./music/orch.yaml, flags: [--stems] }",
+      ),
+    );
+    p.write("music/orch.yaml", "profiles: {}\n"); // only needs to exist for the param check
+    media.wav(p.path("fixture.wav"), 7.2, 300);
+    const restore = stubScorekit(p.path("fixture.wav"));
+    try {
+      const run = p.json<{ argv: string[] }>("run", "music");
+      expect(run.err?.errors?.map((e) => e.message).join("\n")).toBeUndefined();
+      expect(run.exitCode).toBe(0);
+      const argv = run.out!.argv.join(" ");
+      expect(argv).toContain("--renderer=sfizz");
+      expect(argv).toContain("--orchestration=./music/orch.yaml");
+      expect(argv).toMatch(/ --stems$/);
+    } finally {
+      restore();
     }
   });
 

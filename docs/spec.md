@@ -349,6 +349,19 @@ tasks:        {...}        # §3.3
 
 其它 `${...}` → `invalid-input`。占用可选占位符的名字 MUST 匹配 `params|inputs|produces|node|film|output` 之一，且 `${params.x?}` 的 `x` MUST 在该 task 的 `paramsSchema.properties` 中声明——拼错名字不会静默丢参数。
 
+**无值开关（如 `--stems`、`--allow-download`）**：这类 flag 不接受值，写成 `--flag=${params.x?}` 会让很多 CLI 直接报错（argparse 的 `store_true` 会拒绝 `--flag=true`）。Profile 的正确表达是把它们收进一个**声明并枚举**的数组参数，再整元素展开：
+
+```yaml
+properties:
+  flags:
+    type: array
+    description: 'Valueless CLI flags, named verbatim.'
+    items: { enum: [--stems] }
+invocation: [tool, build, "${produces.audio}", "${params.flags?}"]
+```
+
+枚举让拼错的 flag 在 `validate` 阶段就被拦下。`scripts/check-profiles.ts` 会检查 `flags` 数组必须枚举，也会检查"声明的参数有没有被 invocation 用到"（历史上 scorekit 的 `renderer`/`stems` 就被声明了却从未传给工具）。
+
 **工作目录（`tasks[].cwd`）**：默认在项目目录内执行。声明 `cwd`（例如 Remotion 项目目录）后，工具不再位于项目目录，因此 filmkit 交给它的**一切路径都展开为绝对路径**：`${produces.*}`、`${inputs.*}` 以及 `./`/`../` 开头的 `params` 值。没有 `./` 前缀的字符串（如 Remotion 的 `entry: src/index.ts`）原样传递，那是工具自己的词汇表、相对 `cwd`。
 
 **输入哈希**：节点的陈旧判定（§4）不只比较 `impl.params` 的规范化 JSON，还比较其中 `./`/`../` 路径值的**内容**——文件取内容哈希，目录递归取（跳过 `node_modules` 与 `.git`），不存在取 `missing`。文件按内容哈希（这是节点间"链式过期"的来源：读 `./build/voice/s1.wav` 的转录节点会随旁白重渲染而过期）；目录递归哈希时**跳过所有已声明的产物**——否则被交给某个目录的工具会因为兄弟节点写入该目录（或它自己写入）而无端变 stale。产物本身已由 lock 记录，不损失信息。这样 Agent 改动工具自己的文档（scorekit scene、Remotion 项目）或 props 文件时，节点会正确变为 `stale`，而不是让 `build` 静默复用旧产物。

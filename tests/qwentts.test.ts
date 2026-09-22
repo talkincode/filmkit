@@ -81,7 +81,9 @@ afterEach(() => {
 describe("qwentts profile", () => {
   test("speak produces the narration; the scene follows its length; the film builds", () => {
     p.write("filmkit.yaml", qwenttsFilm(", model: customvoice, voice: Serena, emotionIntensity: low, speed: 0.98"));
-    expect(p.cli("validate").exitCode).toBe(0);
+    const v0 = p.json("validate");
+    expect(v0.err?.errors?.map((e) => `${e.field}: ${e.message}`).join("\n")).toBeUndefined();
+    expect(v0.exitCode).toBe(0);
 
     const plan = p.json<{ nodes: { id: string; status: string; executor: string }[]; timeline: { total: number } }>("plan");
     expect(plan.out!.nodes.map((n) => `${n.id}:${n.status}`)).toEqual(["voice:missing", "s1:blocked"]);
@@ -155,5 +157,83 @@ describe("qwentts profile", () => {
     expect(qwentts.ok).toBe(true);
     expect(qwentts.healthcheck!.ok).toBe(true);
     expect(log().join("\n")).toContain("--print-models");
+  });
+});
+
+describe("qwentts route rules (mirroring the tool's own errors)", () => {
+  const fieldOf = (params: string) => {
+    p.write("filmkit.yaml", qwenttsFilm(params));
+    const r = p.json("validate");
+    expect(r.exitCode).toBe(2);
+    return r.err!.errors.map((e) => `${e.field ?? "(root)"}: ${e.message}`).join("\n");
+  };
+
+  test("voice-design needs instruct and refuses the other routes' params", () => {
+    expect(fieldOf(", model: voice-design")).toMatch(/scenes\[0\]\.impl\.params\.text|assets\.voice\.impl\.params: .*missing required field "instruct"/);
+    expect(fieldOf(", model: voice-design, instruct: \"成熟女性律师音色\", voice: Serena")).toMatch(
+      /assets\.voice\.impl\.params\.voice: .*this field cannot be combined with the other params/,
+    );
+    expect(fieldOf(", model: voice-design, instruct: \"描述\", referenceAudio: ./assets/ref.mp3")).toMatch(
+      /params\.referenceAudio: .*this field cannot be combined/,
+    );
+    // The valid form goes through.
+    p.write("filmkit.yaml", qwenttsFilm(", model: voice-design, instruct: \"成熟女性律师音色，亲切、稳定、有力量感\""));
+    expect(p.cli("validate").exitCode).toBe(0);
+    expect(p.cli("run", "voice").exitCode).toBe(0);
+    expect(log()[0]).toContain("--model=voice-design");
+    expect(log()[0]).toContain("--instruct=成熟女性律师音色");
+  });
+
+  test("customvoice refuses cloning params; refText needs a reference clip", () => {
+    expect(fieldOf(", model: customvoice, referenceAudio: ./assets/ref.mp3")).toMatch(
+      /params\.referenceAudio: .*this field cannot be combined/,
+    );
+    expect(fieldOf(", model: base, refText: \"参考音频逐字内容\"")).toMatch(/missing required field "referenceAudio"/);
+    expect(fieldOf(", model: base, flags: [--auto-transcribe-reference]")).toMatch(/missing required field "referenceAudio"/);
+  });
+
+  test("valueless flags travel as a declared, enumerated array", () => {
+    p.write("filmkit.yaml", qwenttsFilm(", model: base, referenceAudio: ./assets/ref.mp3, flags: [--allow-download]"));
+    media.wav(p.path("assets/ref.mp3"), 6);
+    expect(p.cli("validate").exitCode).toBe(0);
+    expect(p.cli("run", "voice").exitCode).toBe(0);
+    const argv = log()[0]!;
+    // The flag is passed bare (argparse's store_true rejects --flag=true)…
+    expect(argv).toMatch(/ --allow-download$/);
+    expect(argv).not.toContain("--allow-download=");
+
+    // …and the enum stops a typo before the tool does.
+    p.write("filmkit.yaml", qwenttsFilm(", model: base, referenceAudio: ./assets/ref.mp3, flags: [--allow-downloads]"));
+    const bad = p.json("validate");
+    expect(bad.exitCode).toBe(2);
+    expect(bad.err!.errors[0]!.message).toMatch(/must be one of: --allow-download, --auto-transcribe-reference/);
+
+    // Auto-transcribing the reference clip still requires a reference clip.
+    p.write("filmkit.yaml", qwenttsFilm(", model: base, flags: [--auto-transcribe-reference]"));
+    const noRef = p.json("validate");
+    expect(noRef.exitCode).toBe(2);
+    expect(noRef.err!.errors.map((e) => e.message).join("\n")).toMatch(/missing required field "referenceAudio"/);
+  });
+
+  test("the extra knobs reach the tool verbatim", () => {
+    p.write(
+      "filmkit.yaml",
+      qwenttsFilm(", model: base, mode: quality, referenceAudio: ./assets/ref.mp3, langCode: zh, topK: 40, repetitionPenalty: 1.2, maxTokens: 2048, flags: [--auto-transcribe-reference], sttModel: whisper-large-v3"),
+    );
+    media.wav(p.path("assets/ref.mp3"), 6);
+    expect(p.cli("validate").exitCode).toBe(0);
+    expect(p.cli("run", "voice").exitCode).toBe(0);
+    const argv = log()[0]!;
+    expect(argv).toMatch(/ --auto-transcribe-reference$/);
+    for (const flag of [
+      "--mode=quality",
+      "--lang-code=zh",
+      "--top-k=40",
+      "--repetition-penalty=1.2",
+      "--max-tokens=2048",
+      "--stt-model=whisper-large-v3",
+    ]) {
+      expect(argv).toContain(flag);
+    }
   });
 });

@@ -9,10 +9,11 @@
   },
   "scripts": {
     "test": "bun test",
-    "check": "bun run typecheck && bun run check:skill && bun run check:tracked",
+    "check": "bun run typecheck && bun run check:skill && bun run check:tracked && bun run check:profiles",
     "typecheck": "bunx tsc --noEmit",
     "check:skill": "bun run scripts/check-skill-cli.ts",
-    "check:tracked": "bun run scripts/check-tracked.ts"
+    "check:tracked": "bun run scripts/check-tracked.ts",
+    "check:profiles": "bun run scripts/check-profiles.ts"
   },
   "dependencies": {
     "ajv": "^8.17.1",

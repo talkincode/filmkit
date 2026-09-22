@@ -96,6 +96,12 @@ function ajvErrorsToDetails(errors: ErrorObject[], src: YamlSource, prefix: Path
       case "not":
         message = "combination of fields is not allowed here";
         break;
+      case "false schema":
+        // How a Profile forbids a field in one case (`properties: { x: false }`
+        // inside an `if/then`): the path stays precise, the reason lives in the
+        // Profile's paramsSchema and its description.
+        message = "this field cannot be combined with the other params (the task's paramsSchema forbids it here)";
+        break;
       default:
         message = e.message ?? e.keyword;
     }

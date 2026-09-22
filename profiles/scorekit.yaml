@@ -41,9 +41,22 @@ tasks:
         renderer:
           enum: [fluidsynth, timidity, sfizz]
           description: Synthesizer backend; sfizz additionally needs an orchestration profile.
-        stems:
-          type: boolean
-          description: Also write per-track stems next to the output.
+        orchestration:
+          type: string
+          description: 'Orchestration profile (a ./ path), required when renderer is sfizz.'
+        flags:
+          type: array
+          description: 'Valueless CLI flags, named verbatim: `--stems` also writes per-track stems next to the output.'
+          items:
+            enum: [--stems]
     # Content validation is delegated to the tool; filmkit only checks that the task ran.
     validate: ["scorekit", "--json", "validate", "${params.scene}"]
-    invocation: ["scorekit", "build", "${params.scene}", "-o", "${produces.audio}"]
+    invocation:
+      - scorekit
+      - build
+      - "${params.scene}"
+      - "-o"
+      - "${produces.audio}"
+      - "--renderer=${params.renderer?}"
+      - "--orchestration=${params.orchestration?}"
+      - "${params.flags?}"
