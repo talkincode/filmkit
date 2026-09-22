@@ -129,7 +129,7 @@ timeline:
 12. **`filmkit schema [--profile]`** — 导出 Film / Profile 的 JSON Schema。
 13. **`filmkit init`** — 项目骨架、内置 Profile、示例编排文件。
 14. **`filmkit import hyperstory <schema.json>`** — 单向导入现有 Video Composition Schema，导入结果必须通过 `validate`。
-20. **qwentts 集成** — 随仓库分发的 `profiles/qwentts.yaml`：`speak`（文本 → 旁白音频），覆盖三条路线（CustomVoice 预置音色 + `emotionIntensity`/`instruct`；`model: base` + `referenceAudio`/`refText` 克隆；`voice-design` 用描述建声），参数收口到 `paramsSchema`。模型权重与 `~/mlx-audio-qwen3-tts` 环境由工具自己管理，filmkit 只声明 binary 与 `--print-models` 体检。
+20. **qwentts 集成** — 随仓库分发的 `profiles/qwentts.yaml`：`speak`（文本 → 旁白音频），覆盖三条路线（CustomVoice 预置音色 + `emotionIntensity`/`instruct`；`model: base` + `referenceAudio`/`refText` 克隆；`voice-design` 用描述建声），参数收口到 `paramsSchema`。模型权重、`QWEN3_TTS_HOME`/`QWEN3_TTS_MODELS_DIR` 运行时与私人音色库都由工具自己管理（Profile 头部照 qwentts README 写明安装步骤），filmkit 只声明 binary 与 `--print-models` 体检。
 19. **旁白与字幕链** — 文本 → 语音 → 转录 → SRT → 成片，全程本地工具。协议侧：`scenes[].audio` 引用旁白资产（与 `produces.audio` 互斥，形成隐式依赖）；字幕轨 `source` 支持整片 SRT 资产；`./` 路径参数指向另一节点的产物时自动成为依赖而不是"缺失文件"；目录哈希跳过所有已声明产物。Profile 侧：`tts`（Kokoro）、`transcribe` + `subtitles`（两段式，因为工具要两步）、`matte-image`（抠像出 alpha PNG）。
 18. **HyperFrames 集成** — 随仓库分发的 `profiles/hyperframes.yaml`：`render`（一个 composition → 一个片段，可选 `quality`/`composition`/`format`/`fps`/`variables`/`strict`），项目目录即 `cwd`，变量文件作为 `./` 路径参数（检查 + 哈希 + 绝对路径）；`validate` 委托 `hyperframes check` 作为项目内容闸门；`doctor` 断言 `checks[]` 里的 Chrome 项。附带 `scripts/e2e-hyperframes.sh` 与 stub 测试。渲染前先 `hyperframes preview` 取得人工批准，是工具自身的约定，Profile 头部写明。
 17. **imagine 集成** — 随仓库分发的 `profiles/imagine.yaml`：`generate`（prompt → 一张图，`--dry-run` 预检、退出码映射、可选 flag）与 `text`（文本 → 透明 PNG，需 resvg 构建）。明确两件事：生成结果不可复现（lock 记录实际产物），以及多方案探索不进节点（Agent 侧先跑，选定后再引用唯一的文件）。

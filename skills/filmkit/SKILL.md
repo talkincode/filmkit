@@ -300,12 +300,18 @@ assets:
     produces: { audio: ./build/voice/s1.wav }
 ```
 
-Cloning route: `model: base` with `referenceAudio` (a `./` path or a voice-library
-file) and `refText` only when you know the exact words — never invent it.
+Cloning route: `model: base` with `referenceAudio` (a `./` path, or a file from a
+voice library — the qwentts repo ships one sample under `skills/qwentts/speakers/`
+and keeps personal libraries in its gitignored `myspeakers/`) and `refText` only
+when you know the exact words — never invent it.
 `qwen3-tts-ai` must be on PATH (symlink it from the qwentts repo) and its model
-weights must be present; `filmkit doctor` runs the tool's cheap `--print-models`
-check, which proves the script runs but cannot see the weights, so a missing
-model surfaces at `filmkit run` with the tool's own message.
+weights must be present. Setup is the tool's own — macOS + Apple Silicon,
+`QWEN3_TTS_HOME` runtime, Hugging Face model downloads, and the repo ships the
+Agent skill too (`npx skills add talkincode/qwentts`); the qwentts README has the
+commands. `filmkit doctor` runs the tool's cheap `--print-models` check, which
+proves the script runs and prints the resolved runtime/model paths, but cannot
+see whether the weights exist, so a missing model surfaces at `filmkit run` with
+the tool's own message.
 
 `profiles/hyperframes.yaml` covers the whole chain (narration + transcription +
 subtitles) with local models — three nodes, each one command, wired by `./`

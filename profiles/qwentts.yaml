@@ -2,13 +2,23 @@
 # local Qwen3-TTS narration: CustomVoice presets with emotion control, Base
 # voice cloning from a reference clip, and VoiceDesign from a description.
 #
-# Install once (the script must be on PATH; models live under ~/mlx-audio-qwen3-tts):
-#   git clone https://github.com/talkincode/qwentts && cd qwentts
-#   ln -sf "$PWD/skills/qwentts/scripts/qwen3-tts-ai" ~/.local/bin/qwen3-tts-ai
-#   qwen3-tts-ai --print-models        # doctor uses this: no model load, no generation
-# Model weights download on first use; pass `allowDownload: true` (or pre-fetch
-# with the script itself). `doctor` cannot see the weights, so a missing model
-# surfaces at `filmkit run` with the tool's own message.
+# Install (macOS + Apple Silicon only — MLX; the qwentts README has the details):
+#   1. runtime:  export QWEN3_TTS_HOME="$HOME/mlx-audio-qwen3-tts"   # the default
+#                uv venv "$QWEN3_TTS_HOME/.venv" --python 3.12
+#                uv pip install --python "$QWEN3_TTS_HOME/.venv/bin/python" -U mlx-audio
+#   2. models:   "$QWEN3_TTS_HOME/.venv/bin/hf" download \
+#                  mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit \
+#                  --local-dir "$QWEN3_TTS_HOME/models/qwen3-tts-12hz-1.7b-customvoice-8bit"
+#                (Base for cloning, VoiceDesign for described voices; ~3 GB each.
+#                 QWEN3_TTS_MODELS_DIR overrides just the models directory.)
+#   3. this Profile needs the script on PATH:
+#                git clone https://github.com/talkincode/qwentts
+#                ln -sf "$PWD/qwentts/skills/qwentts/scripts/qwen3-tts-ai" ~/.local/bin/qwen3-tts-ai
+#                qwen3-tts-ai --print-models     # doctor runs this: no model load, no generation
+# `--print-models` also prints the resolved app/models/python paths, but nothing
+# can see whether the weights exist: a missing model surfaces at `filmkit run`
+# with the tool's own message (pass `allowDownload: true` to let it fetch, or
+# pre-download as in step 2).
 #
 # Use it in a film:
 #   assets:
@@ -26,9 +36,10 @@
 #       impl: { profile: filmkit/static, task: clip }
 #       produces: { image: ./assets/card.png }
 #
-# Cloning route: `model: base` with `referenceAudio` (a ./ path or an absolute
-# path to a reference clip) and, when you know it, `refText` with the exact words
-# in that clip — better quality, never invented.
+# Cloning route: `model: base` with `referenceAudio` (a ./ path, or a file from a
+# voice library — the repo ships one sample under skills/qwentts/speakers/ and
+# keeps personal libraries in its gitignored myspeakers/) and, when you know it,
+# `refText` with the exact words in that clip — better quality, never invented.
 #
 # filmkit never writes the text and never picks a voice: those are the agent's
 # creative decisions, passed through `params`.
@@ -64,7 +75,7 @@ tasks:
           description: 'customvoice: preset speaker + emotion/style. base: clone from referenceAudio. voice-design: describe a voice in instruct.'
         voice:
           type: string
-          description: 'CustomVoice speaker (e.g. Serena, Vivian, Uncle_Fu, Dylan, Eric, Ryan, Aiden) or a Base speaker name.'
+          description: 'CustomVoice speaker (Vivian, Serena, Uncle_Fu, Dylan, Eric — Chinese; Ryan, Aiden — English; Ono_Anna — Japanese; Sohee — Korean) or a Base speaker name.'
         mode:
           enum: [fast, quality]
           description: Generation preset; quality is slower and steadier. Default fast.
