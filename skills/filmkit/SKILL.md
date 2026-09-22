@@ -27,16 +27,53 @@ filmkit.yaml ─► validate ─► plan ─► (produce files / filmkit run) �
 
 Full protocol: `docs/spec.md` in the filmkit repository. Schemas: `filmkit schema`.
 
-## Setup check
+## Setup check — first, every session
+
+Before writing or editing a film — and again whenever you add a
+`profiles[].ref` — run the doctor **in the project directory** (it reads the
+film to know which Profiles to check):
 
 ```bash
 filmkit doctor            # ffmpeg/ffprobe + every Profile the project references
+filmkit --json doctor     # the same report, machine-readable
 ```
 
-Exit `3` means a dependency is missing; the report says which. filmkit never
-prints environment variable values, only whether they are set.
+It reports presence only — filmkit never prints environment variable values:
+ffmpeg/ffprobe and the filters `build` needs, each referenced Profile's
+binaries, required env vars, `healthcheck` and `healthcheckExpect`. Exit `3`
+means a dependency is missing; the report says which.
+
+**When the report is not all green, tell the user before doing anything
+else.** For each problem give all three parts:
+
+1. **What is missing**, exactly as doctor names it: binary, `env` var,
+   filter, or a failed healthcheck.
+2. **What it blocks in this film** — which Profile, therefore which
+   scene/asset nodes cannot be produced, and the consequence downstream
+   (`ARK_API_KEY` unset → every `seedance` node; no usable narration tool →
+   scenes depending on narration stay `estimated` and `blocked`; a missing
+   compose filter → `build` cannot run at all).
+3. **The options** — install/fix it, export the variable in the shell that
+   runs filmkit, or point those nodes at another Profile, stating what the
+   substitute costs in quality, money or time.
+
+Do not silently route around a missing dependency with a different tool:
+choosing the substitute is the user's call. Re-run `filmkit doctor` after
+anything is fixed.
+
+Two gaps doctor cannot see, worth checking yourself when symptoms match:
+
+- **Shell provenance**: doctor sees only the environment of the shell that
+  started it — a key defined in `~/.zshenv` is absent in a plain `sh` child.
+  If it reports `not set` and you know it is set, re-run from a shell that
+  has it (`zsh -c '…'`).
+- **ffmpeg features beyond the compose filters**: `drawtext`/libass are not
+  in doctor's list; without them text and captions must go through
+  `imagine text` PNGs (see below) — say so when reporting impact.
 
 ## Core loop
+
+Start every session at **Setup check** above — never work blind. Then:
 
 1. **Start a project**: `filmkit init <dir>` writes a `filmkit.yaml` that
    validates and builds as-is (two placeholder cards + generated sine BGM).
@@ -57,6 +94,10 @@ prints environment variable values, only whether they are set.
    - `timeline.scenes[].estimated: true` marks durations still taken from the
      plan because the scene's media does not exist yet.
 4. **Produce**, then go back to step 3 until `plan` says `nothing to do`.
+   Produce exactly the nodes `plan` lists — a node it did not list is already
+   done, and running it again repeats spent money (see "Cost discipline"
+   below). Before the first `filmkit run` of a node whose Profile calls a
+   paid API, confirm its `params` with the user.
 5. **Build**: `filmkit build --draft` for a fast low-res preview, `filmkit build`
    for the final. Output is verified with ffprobe against `output`; on any
    mismatch nothing is written to the target path.
@@ -384,6 +425,54 @@ tasks:
 Swap `binary`/`invocation` for your command, keep `paramsSchema` closed, and
 filmkit gives you validation, exit-code mapping, staleness and `plan` for free.
 
+## Cost discipline: confirm params, plan paths, never re-buy
+
+Some Profiles spend money per run — `seedance`, `gemini-omni`,
+`imagine generate`, any `runtime.type: http`. Everything else (ffmpeg,
+scorekit, qwentts, HyperFrames, Remotion, static files) is local and free.
+Three code facts decide what a run costs:
+
+- `plan` lists only nodes that are not `ready` — a produced node with
+  unchanged params never reappears in the work order.
+- `filmkit run <id>` executes whatever it is given **without checking
+  status**: hand it a ready node and the API call happens again.
+- Staleness is content-based: editing `impl.params`, or the bytes of any
+  `./` path inside them (`props`, `variables`, `firstFrame`, a prompt file),
+  marks the node `stale`; a non-ready node in turn marks everything
+  downstream of it `blocked`.
+
+Therefore, while orchestrating:
+
+1. **Confirm generation params before the first paid run.** Show the user
+   the node id, model, duration, ratio/size and final prompt, and get the
+   go-ahead: params are free to edit until the first run and a repurchase
+   after it. Duration and model drive the cost; a wrong ratio wastes the
+   whole call. `filmkit validate` is free and, where the Profile declares
+   it, delegates to the tool's own dry-run (imagine prints the request body
+   without calling the API) — use it until the request shape is certainly
+   right.
+2. **Run only what `plan` lists.** Never re-run a node to “check it
+   worked”, to refresh a file, or because the output looked odd — inspect
+   first (`filmkit status`), then decide with the user and re-run
+   deliberately.
+3. **Order the film cheap → expensive.** Settle durations, edit points,
+   narration, music cues and stills while everything is local; freeze the
+   timeline before the first paid video generation. An upstream edit after
+   that marks downstream paid nodes stale and produces them again.
+4. **Plan `produces` paths before producing.** One predictable root per
+   node (`./build/<node-id>/…`), unique across the film (`validate`
+   enforces this) and never a directory a sibling tool rewrites wholesale.
+   Stable paths keep paid files resumable across sessions, make overwrite
+   hazards visible in review, and turn `plan`'s `produces:` lists into a
+   literal cost inventory: every listed path that does not exist yet is
+   work somebody still has to pay for.
+5. **Verify the first paid node before batching the rest.** Check duration,
+   ratio and content of the first returned file; a systematic mistake
+   caught after one node costs one node, not the whole film.
+6. **filmkit never retries a failed run.** Each retry is a deliberate second
+   purchase — and after a network-level failure of an async API, check
+   whether the remote task already completed before asking again.
+
 ## Generating video with an API (Seedance, Gemini Omni)
 
 Two Profiles call a generation API directly — `filmkit run` performs the request,
@@ -409,9 +498,10 @@ scenes:
   `GEMINI_API_KEY` for Gemini Omni. `filmkit doctor` says whether they are set and
   never prints them; `run` reads them in a worker process, so they do not appear
   in `ps`, logs, the lock file or any output. Never paste a key into a film.
-- Every run costs money and takes tens of seconds. Prefer a draft resolution
-  while iterating, and keep prompts specific about camera movement and subject
-  motion — vague prompts give weak video.
+- Every run costs money and takes tens of seconds — confirm `params` with
+  the user before the first run and follow "Cost discipline" above. Prefer a
+  draft resolution while iterating, and keep prompts specific about camera
+  movement and subject motion — vague prompts give weak video.
 - Image-to-video: Gemini Omni takes `firstFrame` / `lastFrame` as `./` paths and
   sends their bytes inline; Seedance takes `image: https://…` and fetches it
   itself, so that URL must be publicly reachable (filmkit uploads nothing).
@@ -542,6 +632,11 @@ tasks:
 - Do not bypass `plan`: `build` refuses to compose while any node is not
   `ready`, and that is the intended guard against stale or missing footage.
 - Do not expect filmkit to download URLs, call skills, or invent prompts.
+- Do not run a node `plan` did not list: `run` re-executes blindly, so a
+  ready node run by hand repeats a paid API call.
+- Do not silently edit a produced node's `impl.params` (or a file they
+  reference): it turns the node `stale`, blocks its dependents, and
+  producing them again costs money — surface it to the user first.
 
 ## Command reference
 
