@@ -1,0 +1,225 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  verify:
+    name: Check and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Consistency checks (tsc, skill/CLI, tracked, profiles)
+        run: bun run check
+
+      - name: Make sure ffmpeg/ffprobe are available
+        run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+
+      - name: Tests (unit + real ffmpeg end-to-end)
+        run: bun test
+
+  release:
+    name: Package and publish
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Resolve and verify the version
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"                          # v0.2.0
+          VERSION="${TAG#v}"                                      # 0.2.0
+          PKG_VERSION="$(jq -r .version package.json)"
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "package.json version ($PKG_VERSION) does not match tag ($VERSION)" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          awk -v ver="$VERSION" '
+            index($0, "## " ver) == 1 { flag=1; next }
+            /^## / { if (flag) exit }
+            flag { print }
+          ' CHANGELOG.md > /tmp/release_notes.md
+          # A release without versioned notes is incomplete; fail before publishing.
+          if [ ! -s /tmp/release_notes.md ]; then
+            echo "No changelog entry found for version $VERSION" >&2
+            exit 1
+          fi
+          {
+            echo 'notes<<EOF'
+            cat /tmp/release_notes.md
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Package source payload
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          # Exactly what package.json ships, plus package.json itself (--version
+          # reads its own version from it), bun.lock, and node_modules so the
+          # Homebrew formula needs no install step beyond untarring.
+          bun install --frozen-lockfile
+          tar czf "dist/filmkit-${VERSION}.tar.gz" \
+            package.json bun.lock node_modules \
+            bin src profiles skills docs README.md CHANGELOG.md LICENSE
+          (cd dist && sha256sum -- * > checksums.txt && cat checksums.txt)
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/filmkit-*.tar.gz
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/*
+          retention-days: 30
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.version.outputs.tag }}
+          body: |
+            ## filmkit ${{ steps.version.outputs.version }}
+
+            ${{ steps.changelog.outputs.notes }}
+
+            ---
+
+            ### Install
+
+            **Homebrew:**
+            ```bash
+            brew install talkincode/tap/filmkit
+            ```
+
+            **From source** (needs [Bun](https://bun.sh) >= 1.2 and ffmpeg/ffprobe):
+            ```bash
+            curl -fsSL -o filmkit.tar.gz https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/filmkit-${{ steps.version.outputs.version }}.tar.gz
+            tar xzf filmkit.tar.gz && cd filmkit
+            bun bin/filmkit.ts doctor
+            ```
+
+            `checksums.txt` carries the sha256 of every asset.
+          files: |
+            dist/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  homebrew:
+    name: Update Homebrew tap
+    runs-on: ubuntu-latest
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      # Set HOMEBREW_TAP_TOKEN (push access to talkincode/homebrew-tap; a repo
+      # or org secret) to enable this job. Without it the job no-ops, so
+      # releases from forks or before the secret is configured never fail.
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      HOMEBREW_TAP_REPO: talkincode/homebrew-tap
+    steps:
+      - name: Download release artifacts
+        if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist-artifacts
+
+      - name: Render and push formula
+        if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"          # e.g. v0.2.0
+          VERSION="${TAG#v}"                      # e.g. 0.2.0
+          BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          CHECKSUMS="dist-artifacts/checksums.txt"
+
+          # Look up the sha256 for the payload archive in checksums.txt
+          # (format: "<sha256>  <filename>", as produced by `sha256sum *`).
+          SHA="$(awk -v f="filmkit-${VERSION}.tar.gz" '$2 == f { print $1; exit }' "$CHECKSUMS")"
+          [ -n "$SHA" ] || { echo "missing checksum for filmkit-${VERSION}.tar.gz" >&2; exit 1; }
+
+          git clone --depth 1 \
+            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" tap
+          mkdir -p tap/Formula
+
+          cat > tap/Formula/filmkit.rb <<EOF
+          class Filmkit < Formula
+            desc "Agent-oriented video orchestration compiler"
+            homepage "https://github.com/talkincode/filmkit"
+            url "${BASE_URL}/filmkit-${VERSION}.tar.gz"
+            sha256 "${SHA}"
+            version "${VERSION}"
+            license "MIT"
+
+            depends_on "bun"
+            depends_on "ffmpeg"
+
+            def install
+              libexec.install Dir["*"]
+              bin.install_symlink libexec/"bin/filmkit.ts" => "filmkit"
+            end
+
+            def caveats
+              <<~EOS
+                The bundled Agent skill is installed under:
+                  #{opt_pkgshare}/skills/filmkit
+
+                Link it for your agent:
+                  mkdir -p ~/.agents/skills
+                  cp -R #{opt_pkgshare}/skills/filmkit ~/.agents/skills/
+
+                filmkit composes with ffmpeg; check any project with `filmkit doctor`.
+              EOS
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/filmkit --version")
+              assert_match "everything needed for build is present", shell_output("#{bin}/filmkit doctor")
+            end
+          end
+          EOF
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/filmkit.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date for ${VERSION}"
+          else
+            git commit -m "filmkit ${VERSION}"
+            git push
+          fi

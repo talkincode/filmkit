@@ -4,7 +4,7 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
-## Unreleased
+## 0.2.0 — declarative video generation APIs
 
 **Video generation APIs, built in and declarative.** `filmkit run` now executes
 `runtime.type: http` Profiles: a request, an optional poll loop for async APIs,
@@ -26,6 +26,17 @@ field or provider branch anywhere in filmkit's code (spec §3.5).
 - Failures map to the documented exit codes (401/403 → 3, 4xx → 2, 429/5xx and
   network errors → 4); polling waits for one task to finish and never retries a
   failed request; the file lands atomically via a `.part` file.
+- Skill: mandatory pre-flight — `filmkit doctor` runs before any work, and a
+  non-green report must be relayed to the user as *what is missing / what it
+  blocks in this film / the options*, never worked around silently. New
+  "Cost discipline" section for paid generation: confirm params before the
+  first paid run, run only what `plan` lists (`run` does not check status),
+  order the film cheap → expensive, plan `produces` paths before producing.
+- Release engineering: pushing a `v*.*.*` tag drives a GitHub Actions workflow
+  — consistency checks + the full test suite, a versioned source payload with
+  `checksums.txt`, build-provenance attestation, the GitHub Release, and a
+  rendered Homebrew formula pushed to `talkincode/homebrew-tap`
+  (`brew install talkincode/tap/filmkit`).
 - Verified with a real local HTTP server in tests (both shapes) and one real
   Gemini call that corrected the Profile (the API requires `model` explicitly).
   `scripts/e2e-video-apis.sh` runs a keyed smoke test and prints the raw response

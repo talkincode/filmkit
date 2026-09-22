@@ -6,10 +6,24 @@
 filmkit.yaml ─► validate ─► plan ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
 ```
 
-> 状态：`0.1.0`（第一个可用版本）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
+> 状态：`0.2.0`（声明式视频生成 API + 发布链路）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
 bun bin/filmkit.ts --version   # 版本
+```
+
+## 安装
+
+```bash
+brew install talkincode/tap/filmkit    # Homebrew：自带 bun 与 ffmpeg 依赖，filmkit 进 PATH
+```
+
+从源码（需 [Bun](https://bun.sh) ≥ 1.2）：
+
+```bash
+git clone https://github.com/talkincode/filmkit && cd filmkit
+bun install
+bun link                               # filmkit 进 PATH；或直接 bun bin/filmkit.ts
 ```
 
 ## 快速开始
@@ -38,7 +52,7 @@ bun bin/filmkit.ts plan          # 列出还缺的文件与需要产出的场景
 ## 开发
 
 ```bash
-bun test                        # 真实 ffmpeg 端到端 + 单元测试（85 例）
+bun test                        # 真实 ffmpeg 端到端 + 单元测试（129 例）
 bun run check                   # tsc + skill/CLI 一致性 + 源码目录未被 .gitignore 吞掉
 bash scripts/e2e-remotion.sh      # 用真实 Remotion CLI 跑完整链路（联网装包）
 bash scripts/e2e-hyperframes.sh   # 用真实 HyperFrames CLI 跑完整链路（联网装包）
@@ -46,6 +60,7 @@ bash scripts/e2e-imagine-text.sh --build   # 文字卡：现搭支持 resvg 的 
 bash scripts/e2e-hyperframes.sh --narration  # 旁白链：真 TTS → 转录 → 字幕 → 成片（需本地模型）
 bash scripts/e2e-qwentts.sh                  # 中文旁白：真 Qwen3-TTS 合成并驱动场景时长（需本地模型）
 bash scripts/e2e-video-apis.sh seedance      # 视频生成 API 冒烟（会花钱；需 ARK_API_KEY / GEMINI_API_KEY）
+git push origin v0.2.0                       # 推送 v*.*.* tag 触发 Release 工作流：check+test → 打包+attestation → GitHub Release → 渲染公式进 talkincode/tap
 ```
 
 ## 文档
