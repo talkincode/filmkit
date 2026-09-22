@@ -6,9 +6,11 @@ import { resolve } from "node:path";
 import { exec, isOnPath } from "./exec.ts";
 import type { LoadedFilm } from "./film.ts";
 import { BUILTIN_PROFILE_NAMES } from "./profile.ts";
+import { VERSION } from "./version.ts";
 
 export interface DoctorReport {
   ok: boolean;
+  version: string;
   ffmpeg: { found: boolean; version?: string; filters: Record<string, boolean> };
   ffprobe: { found: boolean };
   builtinProfiles: string[];
@@ -102,6 +104,7 @@ export function doctor(loaded: LoadedFilm | undefined, cwd: string): DoctorRepor
   }
   return {
     ok: problems.length === 0,
+    version: VERSION,
     ffmpeg: { found: ffmpegFound, version, filters },
     ffprobe: { found: ffprobeFound },
     builtinProfiles: BUILTIN_PROFILE_NAMES,
@@ -187,6 +190,7 @@ export function checkJsonExpectation(
 export function formatDoctor(r: DoctorReport): string {
   const mark = (b: boolean) => (b ? "✓" : "✗");
   const lines = [
+    `filmkit ${r.version}`,
     `${mark(r.ffmpeg.found)} ffmpeg ${r.ffmpeg.version ?? "(not found)"}`,
     ...Object.entries(r.ffmpeg.filters).map(([f, ok]) => `    ${mark(ok)} filter ${f}`),
     `${mark(r.ffprobe.found)} ffprobe`,

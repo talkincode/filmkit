@@ -7,6 +7,36 @@
   "bin": {
     "filmkit": "./bin/filmkit.ts"
   },
+  "files": [
+    "bin",
+    "src",
+    "profiles",
+    "skills",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/talkincode/filmkit.git"
+  },
+  "homepage": "https://github.com/talkincode/filmkit#readme",
+  "bugs": {
+    "url": "https://github.com/talkincode/filmkit/issues"
+  },
+  "keywords": [
+    "video",
+    "ffmpeg",
+    "orchestration",
+    "agent",
+    "cli",
+    "timeline",
+    "composition"
+  ],
   "scripts": {
     "test": "bun test",
     "check": "bun run typecheck && bun run check:skill && bun run check:tracked && bun run check:profiles",

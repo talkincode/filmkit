@@ -521,5 +521,5 @@ tasks:
 | `filmkit doctor` | Environment + Profile requirements |
 | `filmkit import hyperstory <schema.json> [--out <path>] [--force]` | Convert a Hyperstory schema into a new filmkit.yaml |
 
-Global options: `--film <path>` (default `./filmkit.yaml`), `--json`.
+Global options: `--version`, `--film <path>` (default `./filmkit.yaml`), `--json`.
 Exit codes: `0` ok · `1` io · `2` invalid input · `3` missing dependency · `4` external tool failure.

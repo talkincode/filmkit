@@ -453,3 +453,24 @@ tasks:
     }
   });
 });
+
+describe("release surface", () => {
+  test("--version and -V print the package version; doctor reports it too", () => {
+    const long = p.cli("--version");
+    const short = p.cli("-V");
+    expect(long.exitCode).toBe(0);
+    expect(long.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(short.stdout).toBe(long.stdout);
+    // The version comes from package.json, so a release cannot ship a stale number.
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    expect(long.stdout.trim()).toBe(pkg.version);
+
+    const doctor = p.json<{ version: string }>("doctor");
+    expect(doctor.out!.version).toBe(pkg.version);
+    expect(p.cli("doctor").stdout).toContain(`filmkit ${pkg.version}`);
+  });
+
+  test("--help lists --version", () => {
+    expect(p.cli("--help").stdout).toContain("--version, -V");
+  });
+});

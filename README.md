@@ -6,7 +6,11 @@
 filmkit.yaml ─► validate ─► plan ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
 ```
 
-> 状态：`v1alpha1` 第一轮已可用（validate / plan / run / build / status / doctor / init / schema）。协议字段仍可能变化。
+> 状态：`0.1.0`（第一个可用版本）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
+
+```bash
+bun bin/filmkit.ts --version   # 版本
+```
 
 ## 快速开始
 

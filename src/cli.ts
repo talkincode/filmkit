@@ -13,6 +13,7 @@ import { analyze, requireFilesPlaced } from "./project.ts";
 import { runNode } from "./run.ts";
 import { SCHEMAS } from "./schema.ts";
 import { formatStatus, writeStatus } from "./status.ts";
+import { VERSION } from "./version.ts";
 
 export const COMMANDS = ["init", "schema", "validate", "plan", "run", "build", "status", "doctor", "import", "help"] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -37,6 +38,7 @@ Commands:
   help                  Show this help
 
 Options:
+  --version, -V         Print the filmkit version and exit
   --film <path>         Orchestration file (default: ./filmkit.yaml)
   --json                Machine-readable output on stdout; errors as JSON on stderr
   --no-delegate         validate: skip Profile task \`validate\` commands
@@ -69,6 +71,7 @@ export function main(argv: string[]): CliResult {
         out: { type: "string" },
         force: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
+        version: { type: "boolean", short: "V", default: false },
       },
     });
   } catch (err) {
@@ -77,6 +80,7 @@ export function main(argv: string[]): CliResult {
   const { values, positionals } = parsed;
   const command = (positionals[0] ?? "help") as string;
   const json = values.json;
+  if (values.version) return { exitCode: 0, stdout: `${VERSION}\n`, stderr: "" };
   if (values.help || command === "help") return { exitCode: 0, stdout: HELP, stderr: "" };
   if (!(COMMANDS as readonly string[]).includes(command)) {
     return { exitCode: 2, stdout: "", stderr: `unknown command "${command}"\n\n${HELP}` };
@@ -104,6 +108,7 @@ interface Values {
   profile: boolean;
   lock: boolean;
   cues: boolean;
+  version: boolean;
   out?: string;
   force: boolean;
 }
