@@ -176,6 +176,8 @@ jobs:
             "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" tap
           mkdir -p tap/Formula
 
+          # NB: this heredoc is unquoted — backticks/`${...}` would be
+          # expanded by the shell, so the formula text must avoid them.
           cat > tap/Formula/filmkit.rb <<EOF
           class Filmkit < Formula
             desc "Agent-oriented video orchestration compiler"
@@ -202,7 +204,7 @@ jobs:
                   mkdir -p ~/.agents/skills
                   cp -R #{opt_pkgshare}/skills/filmkit ~/.agents/skills/
 
-                filmkit composes with ffmpeg; check any project with `filmkit doctor`.
+                filmkit composes with ffmpeg; check any project with \"filmkit doctor\".
               EOS
             end
 
