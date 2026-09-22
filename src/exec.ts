@@ -3,6 +3,8 @@
 // place and tests can see exactly what was run.
 
 import { spawnSync } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { FilmkitError, missingDependency, toolFailure, type ErrorDetail } from "./errors.ts";
 import type { ExitClass } from "./types.ts";
 
@@ -39,8 +41,32 @@ export function exec(argv: string[], opts: ExecOptions): ExecResult {
   return { argv, status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
+/**
+ * Is `binary` executable from the PATH as it is **right now**?
+ *
+ * Deliberately not `Bun.which`: it answers from the PATH snapshot taken at
+ * process start, so a directory added later — which is how the test suite
+ * installs its stub tools, and how any caller extends PATH mid-process — is
+ * invisible. On a machine that happens to have the real tool installed, the
+ * stale snapshot reports the real one and hides the miss.
+ */
 export function isOnPath(binary: string): boolean {
-  return Bun.which(binary) !== null;
+  if (binary.includes("/")) return isExecutable(binary);
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (dir && isExecutable(join(dir, binary))) return true;
+  }
+  return false;
+}
+
+/** A regular file the process may execute — never a directory or a broken link. */
+function isExecutable(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Map a tool exit status through a Profile's exitCodes table (spec §3.1). */

@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { FilmkitError, invalid, missingDependency, toolFailure, type ErrorDetail } from "../errors.ts";
-import { exec, execFailure } from "../exec.ts";
+import { exec, execFailure, isOnPath } from "../exec.ts";
 import { sha256File, sha256Text } from "../hash.ts";
 import { emptyLock, writeLock } from "../lock.ts";
 import { probeMedia } from "../probe.ts";
@@ -124,7 +124,7 @@ export function build(a: Analysis, opts: BuildOptions): BuildResult {
   };
   if (opts.dryRun) return result;
 
-  if (!Bun.which("ffmpeg") || !Bun.which("ffprobe")) {
+  if (!isOnPath("ffmpeg") || !isOnPath("ffprobe")) {
     throw new FilmkitError(missingDependency("ffmpeg and ffprobe are required for build", { hint: "run `filmkit doctor`" }));
   }
   const tmpAbs = resolve(dir, compose.tmpOutput);

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatSrt, mergeCues, parseSrt } from "../src/build/subtitles.ts";
 import { checkJsonExpectation } from "../src/doctor.ts";
+import { isOnPath } from "../src/exec.ts";
 import { paramsHash } from "../src/hash.ts";
 import { sceneDuration } from "../src/timeline.ts";
 import { expandArgv, substituteVars } from "../src/vars.ts";
@@ -165,6 +166,29 @@ describe("paramsHash", () => {
       // Absolute paths and plain values are not treated as project paths.
       expect(paramsHash({ abs: "/etc/hosts" }, dir)).toBe(paramsHash({ abs: "/etc/hosts" }, dir));
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("isOnPath", () => {
+  test("resolves against the live PATH, not the snapshot taken at startup", () => {
+    // The test suite installs stub tools by prepending to PATH at runtime —
+    // the same way a caller extends PATH. A resolver frozen at process start
+    // cannot see them, and a dev machine that happens to have the real tool
+    // installed hides the miss.
+    const dir = mkdtempSync(join(tmpdir(), "filmkit-path-"));
+    writeFileSync(join(dir, "filmkit-path-probe"), "#!/bin/sh\n", { mode: 0o755 });
+    mkdirSync(join(dir, "filmkit-path-probe-dir"));
+    const prev = process.env.PATH;
+    try {
+      process.env.PATH = `${dir}${prev ? `:${prev}` : ""}`;
+      expect(isOnPath("filmkit-path-probe")).toBe(true);
+      expect(isOnPath("filmkit-no-such-binary-xyz")).toBe(false);
+      // A directory is not an executable even when the name matches.
+      expect(isOnPath("filmkit-path-probe-dir")).toBe(false);
+    } finally {
+      process.env.PATH = prev;
       rmSync(dir, { recursive: true, force: true });
     }
   });

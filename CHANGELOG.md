@@ -32,6 +32,11 @@ field or provider branch anywhere in filmkit's code (spec §3.5).
   "Cost discipline" section for paid generation: confirm params before the
   first paid run, run only what `plan` lists (`run` does not check status),
   order the film cheap → expensive, plan `produces` paths before producing.
+- `isOnPath` scans the live PATH instead of `Bun.which`, which answers from the
+  snapshot taken at process start: tools added to PATH after startup (how the
+  test suite installs its stubs) were invisible, and a dev machine that had
+  the real tool installed masked the miss — clean CI runners failed `doctor`
+  tests for binaries that were never there.
 - Release engineering: pushing a `v*.*.*` tag drives a GitHub Actions workflow
   — consistency checks + the full test suite, a versioned source payload with
   `checksums.txt`, build-provenance attestation, the GitHub Release, and a
