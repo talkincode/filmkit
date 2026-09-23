@@ -33,6 +33,28 @@ export interface DoctorReport {
 }
 
 const REQUIRED_FILTERS = ["xfade", "acrossfade", "concat", "amix", "tpad", "apad", "overlay", "adelay", "afade"];
+/** Filters only some films need: reported always, a problem only when used. */
+const OPTIONAL_FILTERS = ["asplit", "sidechaincompress", "subtitles"];
+
+/** True when any audio track ducks under the narration (needs asplit + sidechaincompress). */
+export function filmUsesDuck(loaded: LoadedFilm): boolean {
+  return loaded.film.timeline.tracks.some((t) => t.kind === "audio" && t.duck !== undefined && t.duck.amount > 0);
+}
+
+/** True when the subtitles track burns into the picture (needs the subtitles filter / libass). */
+export function filmUsesBurn(loaded: LoadedFilm): boolean {
+  return loaded.film.timeline.tracks.some((t) => t.kind === "subtitles" && t.mode === "burn");
+}
+
+/** Whether ffmpeg offers a filter; false when ffmpeg itself is missing. */
+export function ffmpegFilterAvailable(cwd: string, name: string): boolean {
+  try {
+    const f = exec(["ffmpeg", "-hide_banner", "-filters"], { cwd }).stdout;
+    return new RegExp(`\\s${name}\\s`).test(f);
+  } catch {
+    return false;
+  }
+}
 
 export function doctor(loaded: LoadedFilm | undefined, cwd: string): DoctorReport {
   const problems: string[] = [];
@@ -47,6 +69,15 @@ export function doctor(loaded: LoadedFilm | undefined, cwd: string): DoctorRepor
     for (const name of REQUIRED_FILTERS) {
       filters[name] = new RegExp(`\\s${name}\\s`).test(f);
       if (!filters[name]) problems.push(`ffmpeg is missing the "${name}" filter`);
+    }
+    for (const name of OPTIONAL_FILTERS) filters[name] = new RegExp(`\\s${name}\\s`).test(f);
+    if (loaded && filmUsesDuck(loaded)) {
+      for (const name of ["asplit", "sidechaincompress"]) {
+        if (!filters[name]) problems.push(`ffmpeg is missing the "${name}" filter required by track ducking (duck)`);
+      }
+    }
+    if (loaded && filmUsesBurn(loaded) && !filters["subtitles"]) {
+      problems.push(`ffmpeg is missing the "subtitles" filter (libass) required by subtitle mode "burn"`);
     }
   } else problems.push("ffmpeg not found on PATH");
   if (!ffprobeFound) problems.push("ffprobe not found on PATH");

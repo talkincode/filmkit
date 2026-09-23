@@ -2,7 +2,7 @@
 // tracks in, and encode the final output (spec §2.5–2.6).
 
 import type { Analysis } from "../project.ts";
-import type { AudioTrack, OverlayTrack } from "../types.ts";
+import type { AudioDuck, AudioTrack, OverlayTrack } from "../types.ts";
 import type { ClipPlan } from "./normalize.ts";
 import { channelLayout, num, outputCodecArgs, subtitleCodecFor, type FfmpegStep, type Geometry } from "./ffmpeg.ts";
 
@@ -25,7 +25,7 @@ export function planCompose(
   a: Analysis,
   geo: Geometry,
   clips: ClipPlan[],
-  opts: { draft: boolean; subtitlePath?: string; embedSubtitles: boolean },
+  opts: { draft: boolean; subtitlePath?: string; embedSubtitles: boolean; burnSubtitlesPath?: string; chaptersPath?: string },
 ): ComposePlan {
   const { film } = a.loaded;
   const segments: Segment[] = [];
@@ -64,6 +64,9 @@ export function planCompose(
   // ---- overlay tracks ----
   const layout = channelLayout(geo.channels);
   const audioMixes: string[] = [];
+  // Tracks that duck under the narration: their chain ends at [trkN] above, then
+  // a sidechain compressor keyed on the main mix rewrites them to [trkdN] below.
+  const ducked: { ti: number; duck: AudioDuck }[] = [];
   film.timeline.tracks.forEach((tr, ti) => {
     if (tr.kind === "audio") {
       const t = tr as AudioTrack;
@@ -87,7 +90,12 @@ export function planCompose(
       if (t.from > 0) chain.push(`adelay=${Math.round(t.from * 1000)}:all=1`);
       const label = `[trk${ti}]`;
       filters.push(`[${idx}:a]${chain.join(",")}${label}`);
-      audioMixes.push(label);
+      if (t.duck && t.duck.amount > 0) {
+        ducked.push({ ti, duck: t.duck });
+        audioMixes.push(`[trkd${ti}]`);
+      } else {
+        audioMixes.push(label);
+      }
     } else if (tr.kind === "overlay") {
       const o = tr as OverlayTrack;
       const asset = film.assets[o.asset]!;
@@ -113,9 +121,29 @@ export function planCompose(
       curV = outV;
     }
   });
+  // ---- narration ducking (spec §2.6): one sidechain compressor per ducked
+  // ---- track, keyed on the main mix. `amount` is the wet/dry mix: 0 means the
+  // ---- filter is skipped entirely, 1 means fully ducked whenever narration speaks.
+  if (ducked.length > 0) {
+    const sidechains = ducked.map((_, d) => `[sc${d}]`);
+    filters.push(`${curA}asplit=${ducked.length + 1}[curA_mix]${sidechains.join("")}`);
+    ducked.forEach(({ ti, duck }, d) => {
+      const threshold = duck.threshold ?? 0.02;
+      const attackMs = (duck.attack ?? 0.02) * 1000;
+      const releaseMs = (duck.release ?? 0.25) * 1000;
+      filters.push(`[trk${ti}]${sidechains[d]}sidechaincompress=threshold=${num(threshold)}:ratio=20:attack=${num(attackMs)}:release=${num(releaseMs)}:mix=${num(duck.amount)}[trkd${ti}]`);
+    });
+    curA = "[curA_mix]";
+  }
   if (audioMixes.length > 0) {
     filters.push(`${curA}${audioMixes.join("")}amix=inputs=${audioMixes.length + 1}:duration=first:normalize=0[mixa]`);
     curA = "[mixa]";
+  }
+  // ---- burned subtitles (spec §5): the merged sidecar file rendered into the
+  // ---- picture, above overlays. The SRT is also written to disk for review.
+  if (opts.burnSubtitlesPath) {
+    filters.push(`${curV}subtitles=${escapeSubtitlesPath(opts.burnSubtitlesPath)}[burnv]`);
+    curV = "[burnv]";
   }
   filters.push(`${curV}format=${geo.pixelFormat}[outv]`);
   filters.push(`${curA}aformat=sample_fmts=fltp:channel_layouts=${layout}[outa]`);
@@ -126,12 +154,16 @@ export function planCompose(
   const tmpOutput = `build/.tmp/${finalOutput.split("/").pop()}`;
   const argv = ["ffmpeg", "-hide_banner", "-y", "-nostdin", ...inputs.flat()];
   const maps = ["-map", "[outv]", "-map", "[outa]"];
+  if (opts.chaptersPath) {
+    argv.push("-i", opts.chaptersPath);
+    maps.push("-map_chapters", String(inputs.length));
+  }
   if (opts.embedSubtitles && opts.subtitlePath) {
     argv.push("-i", opts.subtitlePath);
-    maps.push("-map", `${inputs.length}:s`, "-c:s", subtitleCodecFor(out.container));
+    maps.push("-map", `${inputs.length + (opts.chaptersPath ? 1 : 0)}:s`, "-c:s", subtitleCodecFor(out.container));
   }
   argv.push(
-    "-filter_complex_script", "build/compose.filter",
+    "-filter_complex", filters.join(";\n"),
     ...maps,
     ...outputCodecArgs(out, opts.draft),
     "-pix_fmt", geo.pixelFormat,
@@ -147,6 +179,12 @@ export function planCompose(
 
 function ffmpegFormat(container: string): string {
   return container === "mkv" ? "matroska" : container;
+}
+
+/** Quote an SRT path for the `subtitles` video filter: single-quote the whole
+ *  thing and escape backslash, quote and colon (the filter option separator). */
+export function escapeSubtitlesPath(p: string): string {
+  return `'${p.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/:/g, "\\:")}'`;
 }
 
 /** Pixel sizes in the film are for the full-size output; scale them for drafts. */

@@ -121,7 +121,7 @@ function planClip(a: Analysis, p: PlacedScene, geo: Geometry): ClipPlan {
   const argv = [
     "ffmpeg", "-hide_banner", "-y", "-nostdin",
     ...inputs.flat(),
-    "-filter_complex_script", `${CLIP_DIR}/${scene.id}.filter`,
+    "-filter_complex", filters.join(";\n"),
     "-map", "[v]", "-map", "[a]",
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "10", "-pix_fmt", geo.pixelFormat, "-r", num(geo.fps),
     "-c:a", "pcm_s16le", "-ar", String(geo.sampleRate), "-ac", String(geo.channels),
@@ -144,7 +144,7 @@ function planClip(a: Analysis, p: PlacedScene, geo: Geometry): ClipPlan {
           "ffmpeg", "-hide_banner", "-y", "-nostdin",
           "-f", "lavfi", "-i", `color=c=${geo.background}:s=${geo.width}x${geo.height}:r=${num(geo.fps)}`,
           "-f", "lavfi", "-i", `anullsrc=r=${geo.sampleRate}:cl=${layout}`,
-          "-filter_complex_script", `${CLIP_DIR}/${scene.id}.gap.filter`,
+          "-filter_complex", gapFilters.join(";\n"),
           "-map", "[v]", "-map", "[a]",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "10", "-pix_fmt", geo.pixelFormat, "-r", num(geo.fps),
           "-c:a", "pcm_s16le", "-ar", String(geo.sampleRate), "-ac", String(geo.channels),

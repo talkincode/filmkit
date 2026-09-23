@@ -154,6 +154,24 @@
           "additionalProperties": false,
           "properties": { "default": { "$ref": "#/$defs/transition" } }
         },
+        "chapters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title"],
+            "properties": {
+              "title": { "type": "string", "minLength": 1 },
+              "scene": { "$ref": "#/$defs/identifier" },
+              "start": { "type": "number", "minimum": 0 }
+            },
+            "oneOf": [
+              { "required": ["scene"], "not": { "required": ["start"] } },
+              { "required": ["start"], "not": { "required": ["scene"] } }
+            ]
+          }
+        },
         "tracks": {
           "type": "array",
           "items": {
@@ -180,6 +198,17 @@
                     "volume": { "type": "number", "minimum": 0, "maximum": 4 },
                     "fadeIn": { "type": "number", "minimum": 0 },
                     "fadeOut": { "type": "number", "minimum": 0 },
+                    "duck": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["amount"],
+                      "properties": {
+                        "amount": { "type": "number", "minimum": 0, "maximum": 1 },
+                        "attack": { "type": "number", "minimum": 0, "maximum": 2 },
+                        "release": { "type": "number", "minimum": 0, "maximum": 9 },
+                        "threshold": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+                      }
+                    },
                     "stems": true
                   }
                 }
