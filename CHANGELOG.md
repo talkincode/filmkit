@@ -6,6 +6,8 @@ changing the protocol.
 
 ## Unreleased
 
+- **`filmkit run` 付费重放保护（`runtime.type: http`）。** 已 `ready`（产物在位且 `impl.params` 未变）的 http 节点再次 `filmkit run <id>` 不再静默重调供应商：默认退出 `2`，不发起任何请求、不写产物、不写 lock，错误明示费用未知并要求 `--force`（`filmkit run <id> --force`）作为第二次购买的显式授权。`missing` / `partial` / `stale` 仍可直接执行（`plan` 列出即待办）；本地 `cli` 节点不受限。规范见 `docs/spec.md` §3.5 / §6，纪律见 skill "Cost discipline"。
+
 - **`filmkit storyboard` — the Storyboard Sheet.** Before the first paid
   generation (and again before the final build), derive the film plus current
   produces into a regular JSON document (`build/storyboard.json`) and render it
