@@ -415,6 +415,8 @@ tasks:
 
 **不重试**：轮询是接口契约（等一个任务完成），不是重试策略；请求失败即失败（§0 铁律：不做重试）。
 
+**付费重放保护**：每次 `http` 执行都向供应商计费，而费用无法从 Profile 可靠计算（核心不估算价格，统一视为费用未知）。因此 `filmkit run` 对已 `ready`（产物在位且 `impl.params` 未变）的 `http` 节点拒绝再次调用，退出 `2`（`invalid-input`），且在拒绝前不发起任何请求、不写产物、不写 lock；只有显式传入 `--force`（`filmkit run <id> --force`）才视为对第二次购买的授权。`missing` / `partial` / `stale` 的节点仍可直接执行——`plan` 列出它们即是待办的机器可检查边界。本地 `cli` 节点不受此限（免费且可重跑）。
+
 **产物落位**：先写 `<produces 路径>.part` 再 rename，失败不留半成品——与 ffmpeg 输出同一条规则。
 
 ## 4. `kind: Lock` — `filmkit.lock.yaml`
@@ -477,7 +479,7 @@ build:                         # 仅 build 成功后
 | `validate` | film, profiles, 文件存在性 | — | 三层校验 + task `validate` 委托 |
 | `plan` | film, profiles, 产物探测 | — | 工作单，见 §6.1 |
 | `storyboard` | film, profiles, 产物探测（不委托 task `validate`） | build/storyboard.json, build/storyboard.html | 分镜评审表，见 §6.3；不写 lock |
-| `run <id>` | 同上 | 产物, lock | 仅 `cli` + `invocation` |
+| `run <id> [--force]` | 同上 | 产物, lock | `cli` + `invocation` 或 `http` + `http`；`http` 且节点已 `ready` 时无 `--force` 则拒绝（`2`），不调用、不落位、不写 lock |
 | `build [--draft]` | 同上 | 中间片段, 成片, filtergraph, srt, lock | |
 | `status` | 同上 | lock | |
 | `doctor` | profiles | — | |
@@ -504,7 +506,7 @@ build:                         # 仅 build 成功后
 }
 ```
 
-`nodes` 按拓扑序，只含 `status ≠ ready` 的节点。`executor: "filmkit run"` 当且仅当 Profile 为 `cli` 且 task 有 `invocation`。
+`nodes` 按拓扑序，只含 `status ≠ ready` 的节点。`executor: "filmkit run"` 当且仅当 Profile 为 `http`，或为 `cli` 且 task 有 `invocation`。
 
 `missingFiles` 是 film 引用但尚未就位的文件（现成资产的 `uri`、`./` 开头的 `impl.params` 值、`fit: exact` 的 `cues`）：`plan` 把它们列为待办而不阻塞；`validate` 与 `build` 把它们当作 `invalid-input` 错误。
 

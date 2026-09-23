@@ -30,7 +30,7 @@ Commands:
   validate              Schema, references, timeline and Profile paramsSchema checks
   plan                  Work order: nodes that are missing, stale or blocked, in order
   storyboard            Review sheet: build/storyboard.json + build/storyboard.html, proof every shot
-  run <id>              Execute one node whose Profile is cli with an invocation
+  run <id> [--force]     Execute one node (cli or http); a ready http node needs --force to re-spend
   build [--draft] [--dry-run]
                         Normalize every produce, compose along the timeline, verify output
   status                Observe produces, write filmkit.lock.yaml, report readiness
@@ -160,7 +160,7 @@ function dispatch(command: Command, rest: string[], v: Values): { json: unknown;
     case "run": {
       const id = rest[0];
       if (!id) throw new FilmkitError({ code: "invalid-input", message: "run requires a node id: filmkit run <id>" });
-      const r = runNode(analyze(v.film), id);
+      const r = runNode(analyze(v.film), id, { force: v.force });
       const how = r.argv ? r.argv.join(" ") : (r.requests ?? []).map((q) => `${q.method} ${q.url} → ${q.status}`).join(", ");
       return { json: r, text: `ran ${r.id}: ${how}\nproduced ${Object.values(r.produces).join(", ")}` };
     }

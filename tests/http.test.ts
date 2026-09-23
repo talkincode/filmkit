@@ -111,6 +111,51 @@ describe("http runtime", () => {
     expect(p.json<{ nodes: unknown[] }>("plan").out!.nodes).toHaveLength(0);
   }, 30_000);
 
+  test("a ready http node needs --force to re-run: refused without it, billed again with it", async () => {
+    p.write("filmkit.yaml", seedanceFilm());
+    expect(p.cli("run", "s1").exitCode).toBe(0);
+    expect(p.json<{ nodes: unknown[] }>("plan").out!.nodes).toHaveLength(0); // ready
+    const { statSync } = await import("node:fs");
+    const videoMtime = statSync(p.path("build/s1.mp4")).mtimeMs;
+    const lockBefore = readFileSync(p.path("filmkit.lock.yaml"), "utf8");
+    const lockMtime = statSync(p.path("filmkit.lock.yaml")).mtimeMs;
+    // Let the clock move so a rewrite would show up as a newer mtime.
+    await new Promise((r) => setTimeout(r, 25));
+
+    // Second run without --force: refused before any provider request (exit 2),
+    // with the cost-unknown + --force authorization in the message.
+    const refused = p.json("run", "s1");
+    expect(refused.exitCode).toBe(2);
+    expect(refused.err!.errors[0]!.code).toBe("invalid-input");
+    expect(refused.err!.errors[0]!.message).toMatch(/already ready.*billed http task.*cost unknown/);
+    expect(refused.err!.errors[0]!.hint).toMatch(/--force/);
+    expect(refused.out).toBeUndefined();
+    // No side effects: no new produce, no lock rewrite.
+    expect(statSync(p.path("build/s1.mp4")).mtimeMs).toBe(videoMtime);
+    expect(readFileSync(p.path("filmkit.lock.yaml"), "utf8")).toBe(lockBefore);
+    expect(statSync(p.path("filmkit.lock.yaml")).mtimeMs).toBe(lockMtime);
+    expect(p.json<{ nodes: unknown[] }>("plan").out!.nodes).toHaveLength(0); // still ready
+
+    // Explicit authorization re-spends: same node with --force bills again.
+    const forced = p.json<{ requests: unknown[] }>("run", "s1", "--force");
+    expect(forced.err?.errors?.map((e) => e.message).join("\n")).toBeUndefined();
+    expect(forced.exitCode).toBe(0);
+    expect(forced.out!.requests).toHaveLength(4);
+    expect(statSync(p.path("build/s1.mp4")).mtimeMs).toBeGreaterThan(videoMtime);
+    expect(p.json<{ nodes: unknown[] }>("plan").out!.nodes).toHaveLength(0);
+  }, 30_000);
+
+  test("a stale http node still runs without --force (the param change is the new purchase)", () => {
+    p.write("filmkit.yaml", seedanceFilm());
+    expect(p.cli("run", "s1").exitCode).toBe(0);
+    // Change params: the node goes stale and plan lists it again.
+    p.write("filmkit.yaml", seedanceFilm(", seed: 7"));
+    expect(p.json<{ nodes: { id: string; status: string }[] }>("plan").out!.nodes.map((n) => [n.id, n.status])).toEqual([["s1", "stale"]]);
+    const r = p.json("run", "s1");
+    expect(r.exitCode).toBe(0);
+    expect(p.json<{ nodes: unknown[] }>("plan").out!.nodes).toHaveLength(0);
+  }, 30_000);
+
   test("sync API with inline base64 bytes (Gemini-shaped)", () => {
     p.write("filmkit.yaml", geminiFilm());
     const run = p.json<{ requests: unknown[] }>("run", "s1");

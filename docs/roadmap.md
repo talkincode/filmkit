@@ -196,7 +196,7 @@ timeline:
 | 4. validate | 中 | ✅ | ✅ 未登记 profile / 未知 task / params 违约 / 悬空引用 / 重复 id / 重复产物路径 / 环 / sequence / 保留特性 / 编码容器不兼容 / 变量 / 委托校验失败 | 不适用 | ✅ 只读：不产生 lock 与 build 目录 | `tests/validate.test.ts` 全部; `tests/pipeline.test.ts` "a local cli profile with validate + invocation" |
 | 5. 时间轴推导 | 高 | ✅ min / auto / exact 混合 + crossfade 起点 | ✅ 转场过长 / 显式 start 早于推导 / duration 必填 | 不适用 | 不适用（纯计算） | `tests/unit.test.ts` "sceneDuration"; `tests/pipeline.test.ts` "plan > lists only unready nodes", "exact policy trims a longer clip; explicit start inserts a gap" |
 | 6. plan | 中 | ✅ 拓扑序、executor、estimated | ✅ params 变化只标记该节点及下游 stale/blocked | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "plan" 三例 |
-| 7. run | 高 | ✅ 产物落地、lock 记录 | ✅ 非 cli 节点 / 未知 id / 命令成功但未产出 | 不适用 | ✅ 工具失败：删除新建产物，lock 逐字不变 | `tests/pipeline.test.ts` "run" 五例 |
+| 7. run | 高 | ✅ 产物落地、lock 记录（cli + http） | ✅ 非 cli/http 节点 / 未知 id / 命令成功但未产出 / http 已 ready 无 `--force` 拒绝（`2`，不调用、不落位、不写 lock） | 不适用 | ✅ 工具失败：删除新建产物，lock 逐字不变；http 拒绝：无任何副作用 | `tests/pipeline.test.ts` "run" 五例；`tests/http.test.ts` "ready http without --force is refused / --force re-spends" |
 | 8. build | 高 | ✅ 混搭输入归一化 + crossfade + bgm loop + overlay + srt 合并，ffprobe 全参数断言 | ✅ 节点未就绪拒绝 / ffprobe 报规格不符拒绝落位 | 不适用 | ✅ ffmpeg 中途失败：目标与临时文件均不存在，lock 不变 | `tests/pipeline.test.ts` "build" 八例（含确定性：filtergraph 两次逐字相同） |
 | 9. 音乐卡点校验（fit: exact） | 高 | ✅ 对齐通过并出片；真实 scorekit 渲染 → cues → 合成 | ✅ 边界超差 / 音乐过短 / 文件缺失 / 版本错 / 重叠 / 顺序错 / `cues` 与 `fit` 不匹配 | 不适用 | 不适用（校验不写状态） | `tests/cues.test.ts` 全部；`tests/scorekit.test.ts` "scene -> ogg -> cues -> composed film"（真实工具）与三个 stub 用例 |
 | 10. status / lock 账本 | 高 | ✅ 写 lock、幂等、过期检测 | ✅ 损坏 lock 报错而非静默替换 | 不适用 | ✅ 原子写（临时文件 + rename，`src/lock.ts`）；损坏 lock 不被覆盖 | `tests/pipeline.test.ts` "status" 三例 |
