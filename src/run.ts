@@ -1,5 +1,5 @@
-// `filmkit run <id>`: execute one cli node's invocation template and record
-// the result (spec §6). Anything not `cli` + `invocation` is the agent's job.
+// `filmkit run <id>`: execute one node's cli invocation or http API call and record
+// the result (spec §6). Anything not `cli` + `invocation` or `http` + `http` is the agent's job.
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -21,7 +21,12 @@ export interface RunResult {
   produces: Record<string, string>;
 }
 
-export function runNode(a: Analysis, id: string): RunResult {
+export interface RunOptions {
+  /** Explicit authorization for a paid re-execution: a ready http node only runs with `force: true`. */
+  force?: boolean;
+}
+
+export function runNode(a: Analysis, id: string, opts: RunOptions = {}): RunResult {
   const node = a.order.find((n) => n.id === id);
   if (!node) throw new FilmkitError(invalid(`no scene or generated asset with id "${id}"`, { hint: `known: ${a.order.map((n) => n.id).join(", ")}` }));
   const prof = a.loaded.profiles.get(node.impl.profile)!.profile;
@@ -43,6 +48,21 @@ export function runNode(a: Analysis, id: string): RunResult {
     for (const dep of node.inputs) {
       const st = a.state.nodes.get(dep);
       if (st && st.status !== "ready") throw new FilmkitError(invalid(`input "${dep}" is ${st.status}; produce it first`));
+    }
+    // Paid-call guard: every http execution bills the provider, and the cost is
+    // unknown from the Profile — so a node that is already ready (params
+    // unchanged, produces in place) never re-calls the API silently. `plan`
+    // omits ready nodes; this is the machine enforcement of "run only what plan
+    // lists". Pass --force to authorize the second purchase explicitly.
+    // Local cli nodes stay re-runnable: they are free and idempotent, and their
+    // recovery story is "run it again".
+    const own = a.state.nodes.get(id);
+    if (own?.status === "ready" && !opts.force) {
+      throw new FilmkitError(
+        invalid(`node "${id}" is already ready; refusing to re-call a billed http task (cost unknown from the Profile) without explicit authorization`, {
+          hint: `params unchanged since the last run — pass --force to spend again (filmkit run ${id} --force)`,
+        }),
+      );
     }
     const target = node.produces.video ?? node.produces.image ?? node.produces.audio ?? node.produces.file;
     if (!target) throw new FilmkitError(invalid(`node "${id}" declares no file produce for an http task`));

@@ -84,8 +84,8 @@ Start every session at **Setup check** above — never work blind. Then:
    `missingFiles` so you can keep working.
 3. **Ask what to do**: `filmkit --json plan`. It lists only nodes that are
    `missing`, `partial`, `stale` or `blocked`, in dependency order, each with:
-   - `executor`: `filmkit run` (a cli Profile with an invocation — just run
-     `filmkit run <id>`), `agent` (you produce the files with the named
+   - `executor`: `filmkit run` (a cli Profile with an invocation, or an http
+     Profile — just run `filmkit run <id>`), `agent` (you produce the files with the named
      tool/skill), or `place files` (`filmkit/static`: copy the files into
      `produces` paths yourself).
    - `params`, `inputs` (resolved paths) and `produces` (where files must land).
@@ -104,8 +104,8 @@ Start every session at **Setup check** above — never work blind. Then:
    "Storyboard: proof every shot before you spend" below.
 5. **Produce**, then go back to step 3 until `plan` says `nothing to do`.
    Produce exactly the nodes `plan` lists — a node it did not list is already
-   done, and running it again repeats spent money (see "Cost discipline"
-   below). Before the first `filmkit run` of a node whose Profile calls a
+   done, and for http that second run is refused without `--force` (see "Cost
+   discipline" below). Before the first `filmkit run` of a node whose Profile calls a
    paid API, confirm its `params` with the user (via the storyboard sheet).
 6. **Build**: `filmkit build --draft` for a fast low-res preview, `filmkit build`
    for the final. Output is verified with ffprobe against `output`; on any
@@ -522,8 +522,12 @@ Three code facts decide what a run costs:
 
 - `plan` lists only nodes that are not `ready` — a produced node with
   unchanged params never reappears in the work order.
-- `filmkit run <id>` executes whatever it is given **without checking
-  status**: hand it a ready node and the API call happens again.
+- `filmkit run <id>` executes a `missing` / `partial` / `stale` http node, but
+  **refuses a `ready` http node without `--force`**: handing it a ready node
+  exits `2` before any provider request, with no file or lock changes. Cost is
+  unknown from the Profile, so every re-execution counts as a new purchase —
+  pass `filmkit run <id> --force` only to authorize it explicitly. Local `cli`
+  nodes stay re-runnable (free and idempotent).
 - Staleness is content-based: editing `impl.params`, or the bytes of any
   `./` path inside them (`props`, `variables`, `firstFrame`, a prompt file),
   marks the node `stale`; a non-ready node in turn marks everything
@@ -546,7 +550,8 @@ Therefore, while orchestrating:
 2. **Run only what `plan` lists.** Never re-run a node to “check it
    worked”, to refresh a file, or because the output looked odd — inspect
    first (`filmkit status`), then decide with the user and re-run
-   deliberately.
+   deliberately. For a `ready` http node that means an explicit second
+   purchase: `filmkit run <id> --force`, after the user agrees to spend again.
 3. **Order the film cheap → expensive.** Settle durations, edit points,
    narration, music cues and stills while everything is local; freeze the
    timeline before the first paid video generation. An upstream edit after
@@ -704,9 +709,10 @@ tasks:
   `runtime.healthcheckCwd` (check a tool that lives inside that directory), and
   `${params.x?}` (drop an argv element when the param is absent — this is how
   optional flags are exposed without conditionals).
-- `runtime.type: cli` + `invocation` → `filmkit run <id>` executes it.
-  Anything else (`skill`, `mcp`, `http`) is yours to execute; `plan` says
-  `executor: agent`.
+- `runtime.type: cli` + `invocation` → `filmkit run <id>` executes it, as does
+  `runtime.type: http` + `http` (a declared API call; a `ready` node needs
+  `filmkit run <id> --force` to re-spend). Anything else (`skill`, `mcp`) is
+  yours to execute; `plan` says `executor: agent`.
 - When a tool has its own document format (a scorekit scene, a HyperFrames
   project), **reference the file from `params`, never inline it**. A
   `./`-prefixed param must exist; a `validate` template lets filmkit delegate
@@ -723,8 +729,9 @@ tasks:
 - Do not bypass `plan`: `build` refuses to compose while any node is not
   `ready`, and that is the intended guard against stale or missing footage.
 - Do not expect filmkit to download URLs, call skills, or invent prompts.
-- Do not run a node `plan` did not list: `run` re-executes blindly, so a
-  ready node run by hand repeats a paid API call.
+- Do not run a node `plan` did not list: a `ready` http node run by hand is
+  refused without `--force` (`filmkit run <id> --force`), because it would
+  repeat a paid API call with unknown cost.
 - Do not silently edit a produced node's `impl.params` (or a file they
   reference): it turns the node `stale`, blocks its dependents, and
   producing them again costs money — surface it to the user first.
@@ -738,7 +745,7 @@ tasks:
 | `filmkit validate [--no-delegate]` | Schema + references + timeline + Profile paramsSchema (+ tool `validate`) |
 | `plan` | Work order (nodes not ready, topological order) |
 | `filmkit storyboard` | Storyboard Sheet: `build/storyboard.json` + reviewable `build/storyboard.html` |
-| `filmkit run <id>` | Execute one cli node; records result in the lock |
+| `filmkit run <id> [--force]` | Execute one cli or http node; records result in the lock. A `ready` http node needs `--force` to re-spend |
 | `filmkit build [--draft] [--dry-run]` | Normalize, compose, verify; `--dry-run` only writes `build/compose.filtergraph.txt` |
 | `filmkit status` | Observe produces, write lock, report |
 | `filmkit doctor` | Environment + Profile requirements |
