@@ -20,11 +20,12 @@ interface FfprobeJson {
     duration?: string;
     disposition?: { attached_pic?: number };
   }[];
+  chapters?: { time_base?: string; start?: number; end?: number; tags?: { title?: string } }[];
 }
 
 export function probeMedia(path: string, cwd: string): Probe {
   const r = exec(
-    ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+    ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", path],
     { cwd },
   );
   if (r.status !== 0) throw new FilmkitError(execFailure(r, "tool-failure", `ffprobe ${path}`));
@@ -55,6 +56,13 @@ export function probeMedia(path: string, cwd: string): Probe {
       probe.audioCodec = s.codec_name;
       if (probe.duration === undefined && s.duration) probe.duration = round(Number(s.duration));
     }
+  }
+  if (json.chapters?.length) {
+    probe.chapters = json.chapters.map((c) => {
+      const [n, d] = (c.time_base ?? "1/1000").split("/").map(Number);
+      const scale = n && d ? n / d : 0.001;
+      return { start: round((c.start ?? 0) * scale), end: round((c.end ?? 0) * scale), title: c.tags?.title ?? "" };
+    });
   }
   return probe;
 }

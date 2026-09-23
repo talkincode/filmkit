@@ -115,6 +115,7 @@ function applyDefaults(raw: Record<string, unknown>): Film {
     sequence: tl.sequence ?? f.scenes.map((s) => s.id),
     transition: { default: tl.transition?.default ?? { type: "cut" } },
     tracks: (tl.tracks ?? []).map((t) => trackDefaults(t)),
+    ...(tl.chapters ? { chapters: tl.chapters } : {}),
   };
   return f;
 }
@@ -306,7 +307,6 @@ function checkStructure(loaded: LoadedFilm, errors: ErrorCollector): void {
     trackIds.add(t.id);
     if (t.kind === "subtitles") {
       subtitleTracks++;
-      if (t.mode === "burn") add(field("mode"), `subtitle mode "burn" is reserved and not implemented in v1alpha1`);
       if (t.source !== "scenes") {
         // A whole-film subtitle file: it must be an asset, so existence, planning
         // and staleness all work the same way as any other input.

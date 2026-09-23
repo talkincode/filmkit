@@ -4,6 +4,7 @@
 
 import { ErrorCollector, invalid } from "./errors.ts";
 import { at, type LoadedFilm } from "./film.ts";
+import { resolveChapters } from "./chapters.ts";
 import { round } from "./probe.ts";
 import type { ProjectState } from "./state.ts";
 import type { Scene, Transition } from "./types.ts";
@@ -114,6 +115,12 @@ export function deriveTimeline(loaded: LoadedFilm, state: ProjectState, errors: 
       errors.add(at(invalid("fadeIn + fadeOut exceed the track's span", { field: `timeline.tracks[${i}].fadeOut` }), src));
     }
   });
+  // Chapters resolve against derived starts, so they are checked here — not in
+  // film.ts — where `total` and per-scene starts are known (spec §1.8.3).
+  if (film.timeline.chapters?.length) {
+    const partial: DerivedTimeline = { scenes: placed, total };
+    for (const e of resolveChapters(film, partial).errors) errors.add(at(e, src));
+  }
 
   const planned = film.output.duration.planned;
   if (planned !== undefined && placed.every((p) => !p.estimated) && Math.abs(planned - total) > film.output.duration.tolerance) {

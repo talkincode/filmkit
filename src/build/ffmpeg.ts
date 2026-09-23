@@ -121,7 +121,9 @@ export function subtitleCodecFor(container: Output["container"]): string {
 /** One ffmpeg invocation as recorded in compose.filtergraph.txt. */
 export interface FfmpegStep {
   title: string;
-  /** argv without the filter script itself; `-filter_complex_script` points at it. */
+  /** Full argv: the filtergraph travels inline via `-filter_complex` (ffmpeg 8+
+   *  removed `-filter_complex_script`; spawn takes an argv array, so no shell
+   *  quoting is involved at execution time). */
   argv: string[];
   filterComplex: string;
 }

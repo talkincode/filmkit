@@ -110,8 +110,12 @@ timeline:
 - **imagine 集成**：随仓库分发 `profiles/imagine.yaml`（`generate`：一条 prompt → 一张图；`text`：文本层 → 透明 PNG，需 resvg 构建）。`generate` 的 `validate` 用工具自己的 `--dry-run` 做**零 API 消耗**的预检；协议侧新增 `runtime.healthcheckExpect`（`imagine models --json` 无可用模型时仍退出 0）。不变量：生成像素不可复现，lock 记录实际字节；多方案探索（`-n`、模型 A/B）留在 Agent 侧，不进节点。
 - **Remotion 集成**：随仓库分发 `profiles/remotion.yaml`（`render` / `still` 两个 task）。为此协议新增 `tasks[].cwd`（Remotion 必须在项目目录内执行）、`${name?}` 可选占位符（可选工具参数）、`runtime.healthcheckCwd`（Remotion 装在项目 `node_modules` 里）、以及"引用路径的内容哈希纳入陈旧判定"（改 TSX/props 会让节点 stale）。真实端到端脚本：`scripts/e2e-remotion.sh`；stub 测试：`tests/remotion.test.ts`。
 - **scorekit 集成**：随仓库分发 `profiles/scorekit.yaml`（`cli` 类，`validate` 委托 `scorekit --json validate`，`invocation` 调 `scorekit build`）。真实 scorekit 的端到端测试见 `tests/scorekit.test.ts`（未安装时跳过）。
+- **章节标记（`timeline.chapters`）**：`{ title, scene | start }`（`src/chapters.ts`）；`build` 生成确定性 `build/chapters.txt`（ffmetadata，毫秒精度）并以 `-map_chapters` 注入成片，ffprobe 校验数量/标题/起点。
+- **旁白避让（音频轨 `duck`）**：以主轨混音为 sidechain 的 `sidechaincompress`（`mix = amount`，需 `asplit` 分流），`amount: 0` 时不生成压缩器。
+- **烧录字幕（`mode: burn`）**：合并后的 sidecar SRT 经 `subtitles` 滤镜烧进画面（叠加轨之上），sidecar 照常写出供校对；缺 libass 时 `doctor` 报告、`build` 以 `missing-dependency` 在执行前失败。
+- **`import script`**：口播稿 markdown → 新 filmkit.yaml（`src/import-script.ts`）；小节成场景、字符数估时长（4 字/秒、下限 2s、`durationPolicy: min`）、缺图占位，导入结果可直接 `plan`。
 
-尚未实现（协议已保留字段，`validate` 明确拒绝）：`tracks[].stems`、字幕 `mode: burn`、`profiles[].source`、`filmkit mcp`。
+尚未实现（协议已保留字段，`validate` 明确拒绝）：`tracks[].stems`、`profiles[].source`、`filmkit mcp`。
 
 ## 功能清单（目标能力）
 
@@ -138,6 +142,10 @@ timeline:
 17. **imagine 集成** — 随仓库分发的 `profiles/imagine.yaml`：`generate`（prompt → 一张图，`--dry-run` 预检、退出码映射、可选 flag）与 `text`（文本 → 透明 PNG，需 resvg 构建）。明确两件事：生成结果不可复现（lock 记录实际产物），以及多方案探索不进节点（Agent 侧先跑，选定后再引用唯一的文件）。
 16. **Remotion 集成** — 随仓库分发的 `profiles/remotion.yaml`：`render`（composition → 片段）与 `still`（帧 → 图片）两个 task，`cwd` 指向 Remotion 项目目录，`props` 以 `./` 路径参数传递（存在性检查 + 内容哈希 + 绝对路径）；配套 `scripts/e2e-remotion.sh` 用真实 Remotion CLI 走完整链路。协议侧新增 `tasks[].cwd`、`${params.x?}` 可选占位符、`runtime.healthcheckCwd` 与"引用路径内容哈希"。
 15. **filmkit skill（使用说明书）** — 面向 Agent 的 SKILL.md：何时 `validate` / `plan` / `run` / `build`，如何读 Profile 把 `intent` 翻译成 `params`，禁止事项（不手改 lock、不在 `params` 外塞工具参数、不内嵌工具原生文档）。文中命令必须与 CLI `--help` 一致。
+22. **章节标记（`timeline.chapters`）** — `{ title, scene | start }` 章节表；`build` 生成确定性 `build/chapters.txt`（ffmetadata）并以 `-map_chapters` 注入成片，ffprobe 校验数量/标题/起点。
+23. **旁白避让（音频轨 `duck`）** — 以主轨混音为 sidechain 的压缩器（`sidechaincompress`，`mix = amount`），旁白响起时 BGM 自动让路；`amount: 0` 关闭。`stems` 仍保留给未来的分轨处理。
+24. **烧录字幕（`mode: burn`）** — 合并后的 sidecar SRT 经 `subtitles` 滤镜（libass）烧进画面，同时写出 sidecar 供校对；缺 libass 时 `doctor` 报告、`build` 以 `missing-dependency` 在执行前失败。
+25. **`filmkit import script`** — 口播稿 markdown（`#` 标题 + `##` 小节 + 首图）单向转换为 filmkit.yaml：小节成场景、字符数估时长（`durationPolicy: min`）、缺图占位进 `missingFiles`。
 
 跨功能约定（适用于全部命令）：`--json` 输出机器可读错误，含 `field` 路径与行号；退出码 `0` ok、`1` io、`2` invalid input、`3` missing dependency、`4` external tool failure。
 
@@ -211,5 +219,9 @@ timeline:
 | 19. 旁白与字幕链（scenes[].audio + subtitles.source + tts/transcribe/subtitles/matte-image） | 高 | ✅ stub 全链路（文本→语音→转录→SRT→成片）与真实端到端（`scripts/e2e-hyperframes.sh --narration`：真 TTS + 真转录 + 句子级字幕 + 2.99s 成片） | ✅ 场景音频引用非 audio 资产/未知资产/与 produces.audio 冲突 / 字幕轨指向非 subtitle 资产 / 字幕文件缺失 / 转录工具失败（无产物残留） | 不适用 | ✅ run 失败无产物残留、lock 不变 | `tests/narration.test.ts` 四例；`scripts/e2e-hyperframes.sh --narration` |
 | 20. qwentts 集成（speak + 三条音色路线） | 高 | ✅ stub 五例（含克隆路线、缺失参考音频、工具失败、参数拼错、doctor 体检）与真实端到端（`scripts/e2e-qwentts.sh`：真 Qwen3-TTS 合成 4.72s，场景时长跟随旁白，成片 4.72s） | ✅ 未声明参数 / 参考音频缺失（missingFiles）/ 模型权重缺失（tool-failure，无产物残留）/ 旧版 CLI（脚本会提示重新 symlink） | 不适用 | ✅ run 失败无产物残留、lock 不变 | `tests/qwentts.test.ts` 五例；`scripts/e2e-qwentts.sh` |
 | 15. filmkit skill 与 CLI 一致性 | 低 | ✅ `bun run check:skill` | 不适用 | 不适用 | 不适用（文档） | `scripts/check-skill-cli.ts` |
+| 22. 章节标记（timeline.chapters + chapters.txt + map_chapters + 探针校验） | 高 | ✅ scene-ref 章节 dry-run 规划确定 + 真机编码后 ffprobe 标题/起点断言（能力门控） | ✅ 未知 scene / 超总长 / 乱序 / scene+start 并存（均为退出 2） | 不适用 | ✅ 沿用 build 恢复路径（失败无成片、lock 不变） | `tests/knowledge.test.ts` "chapters" 三例 |
+| 23. 旁白避让（duck → sidechaincompress + asplit） | 高 | ✅ dry-run 规划含 asplit/sidechaincompress（逐字确定）+ 真机编码出片（能力门控） | ✅ amount 越界 → 退出 2 | 不适用 | ✅ 沿用 build 恢复路径 | `tests/knowledge.test.ts` "ducking" 两例 |
+| 24. 烧录字幕（mode: burn + libass 预检） | 高 | ✅ dry-run 规划含 subtitles 滤镜 + sidecar 照常写出；有 libass 时真机烧录 | ✅ 无 libass → 退出 3（执行前失败，无成片、lock 不变） | 不适用 | ✅ 预检在执行前：目标与 lock 均不动 | `tests/knowledge.test.ts` "burn" 两例 |
+| 25. import script（markdown → film） | 中 | ✅ 小节→场景→plan 可用（place files）+ 估计时长规则 + 确定性（二次导入逐字相同） | ✅ 文件缺失 / 无小节 / 拒绝覆盖（--force 才覆盖） | 不适用 | ✅ 目标已存在时拒绝写入且不修改原文件 | `tests/knowledge.test.ts` "import script" 三例 |
 
-本矩阵当前没有 `❌ 缺口`：21 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。
+本矩阵当前没有 `❌ 缺口`：25 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。

@@ -93,6 +93,17 @@ export interface Output {
   background: string;
 }
 
+export interface AudioDuck {
+  /** 0..1: how far the track ducks under the main mix (0 = off, 1 = full). Maps to the wet/dry mix of the sidechain compressor. */
+  amount: number;
+  /** Seconds; smoothing time for the compressor to engage. Default 0.02. */
+  attack?: number;
+  /** Seconds; smoothing time for the track to recover. Default 0.25. */
+  release?: number;
+  /** Sidechain trigger level. Default 0.02. */
+  threshold?: number;
+}
+
 export interface AudioTrack {
   id: string;
   kind: "audio";
@@ -111,6 +122,11 @@ export interface AudioTrack {
   volume: number;
   fadeIn: number;
   fadeOut: number;
+  /**
+   * Narration ducking: lower this track while the main mix speaks, via a
+   * sidechain compressor keyed on the main track (spec §2.6). Absent = no ducking.
+   */
+  duck?: AudioDuck;
   stems?: unknown;
 }
 
@@ -141,10 +157,20 @@ export interface OverlayTrack {
 
 export type Track = AudioTrack | SubtitlesTrack | OverlayTrack;
 
+export interface Chapter {
+  title: string;
+  /** Resolve the chapter point to this scene's derived start. Mutually exclusive with `start`. */
+  scene?: string;
+  /** Absolute seconds. Mutually exclusive with `scene`. */
+  start?: number;
+}
+
 export interface Timeline {
   sequence: string[];
   transition: { default: Transition };
   tracks: Track[];
+  /** Optional chapter marks exported as container chapters (spec §1.8.3). */
+  chapters?: Chapter[];
 }
 
 export interface Film {
@@ -240,6 +266,8 @@ export interface Probe {
   videoCodec?: string;
   audioCodec?: string;
   format?: string;
+  /** Container chapters, in order (present only when the file has any). */
+  chapters?: { start: number; end: number; title: string }[];
 }
 
 export type NodeStatus = "ready" | "missing" | "stale" | "partial";

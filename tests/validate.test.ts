@@ -162,12 +162,12 @@ describe("validate — references and semantics", () => {
   });
 
   test("reserved features are refused explicitly", () => {
+    // `burn` used to be on this list; it is implemented now (see tests/knowledge.test.ts).
     expectInvalid(
       film({ scenes: twoScenes, assets: "  bgm: { kind: audio, uri: ./a.png }", tracks: "    - { id: m, kind: audio, asset: bgm, stems: {} }" }),
       "timeline.tracks[0].stems",
       /reserved/,
     );
-    expectInvalid(film({ scenes: twoScenes, tracks: "    - { id: subs, kind: subtitles, source: scenes, mode: burn }" }), "timeline.tracks[0].mode", /reserved/);
   });
 
   test("codec/container mismatch", () => {

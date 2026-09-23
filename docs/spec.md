@@ -4,7 +4,7 @@
 
 约定：**MUST / MUST NOT / SHOULD** 按 RFC 2119 理解。标注 **保留** 的字段或取值已进入协议但本版本不实现——Schema 接受它们并在 `validate` 阶段以 `invalid-input` 拒绝。
 
-v1alpha1 当前保留未实现：`tracks[].stems`、字幕 `mode: burn`、`profiles[].source`。
+v1alpha1 当前保留未实现：`tracks[].stems`、`profiles[].source`。
 
 ## 0. 通用规则
 
@@ -177,6 +177,7 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 | --- | --- | --- | --- | --- |
 | `sequence` | [场景 id] | 否 | `scenes` 顺序 | 主轨顺序；MUST 是 `scenes` id 的一个排列（不多不少） |
 | `transition.default` | Transition | 否 | `{type: cut}` | |
+| `chapters` | [Chapter] | 否 | — | 章节标记，见 §1.8.3 |
 | `tracks` | [Track] | 否 | `[]` | 叠加轨 |
 
 #### 1.8.1 Transition
@@ -203,6 +204,7 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 | `volume` | number 0..4 | `1` | |
 | `fadeIn` | number ≥ 0 | `0` | |
 | `fadeOut` | number ≥ 0 | `0` | 在 `to` 处结束 |
+| `duck` | `{ amount: 0..1, attack?: 秒, release?: 秒, threshold?: 0..1 }` | — | 旁白避让：以主轨混音为 sidechain 对本轨做压缩。`amount` 为干湿比（0 = 关闭，此时不生成压缩器；1 = 旁白响起时完全压下）；`attack` 默认 `0.02`、`release` 默认 `0.25`、`threshold` 默认 `0.02`。见 §2.6 |
 | `stems` | any | — | **保留** |
 
 **`kind: subtitles`**
@@ -210,7 +212,7 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `source` | `scenes` 或资产名 | 必填 | `scenes`：收集每个场景 `produces.subtitle`，按场景起点偏移、按场景窗口裁剪后合并；资产名：该资产（`kind: subtitle`）的文件按**原时间轴**使用——整片转录的产物就是这个形状 |
-| `mode` | `sidecar` \| `embed` \| `burn` | `sidecar` | `sidecar`：写出 `<output stem>.srt`；`embed`：同时封装为字幕流（mp4/mov→`mov_text`，mkv/webm→`srt`/`webvtt`）；`burn` **保留**（需 libass） |
+| `mode` | `sidecar` \| `embed` \| `burn` | `sidecar` | `sidecar`：写出 `<output stem>.srt`；`embed`：同时封装为字幕流（mp4/mov→`mov_text`，mkv/webm→`srt`/`webvtt`）；`burn`：同时把字幕烧进画面（需 ffmpeg `subtitles` 滤镜 / libass，见 §5）。三种模式都写出 sidecar 文件供校对 |
 
 `from`/`to` 对字幕轨无意义，MUST NOT 出现。同一 Film 最多一条字幕轨。
 
@@ -223,6 +225,12 @@ URL 资产在 v1alpha1 中只允许被 `impl.params` / 模板引用，不允许�
 | `margin` | int ≥ 0 | `32` | 像素，`center` 忽略 |
 | `width` | int > 0 | 原始尺寸 | 缩放到该宽度，等比 |
 | `opacity` | number 0..1 | `1` | |
+
+#### 1.8.3 Chapters（章节标记）
+
+`timeline.chapters` 是可选的章节列表，每项 `{ title, scene?, start? }`：`title` 非空；`scene` 与 `start` 二选一（`scene` 解析为该场景的推导起点，含 `start` 垫片；`start` 为绝对秒数）。校验（`validate` 与 `build` 都执行）：`scene` MUST 存在；解析后的起点 MUST 小于全片总长；全表 MUST 严格递增（按所写顺序）。
+
+`build` 把章节写成确定性的 `build/chapters.txt`（ffmetadata 格式，毫秒精度，标题按 ffmetadata 规则转义，无时间戳），以 `-map_chapters` 注入成片；ffprobe 校验章节数量、标题与起点（容差 0.05s），不符则拒绝落位。章节是通用容器元数据，不理解任何工具语义。
 
 ## 2. 时间轴推导
 
@@ -277,8 +285,8 @@ total  = endₙ
 
 ### 2.6 叠加轨
 
-- `audio`：在 `[from,to)` 内按 `fit` 铺设，施加 `volume`、`fadeIn`、`fadeOut`；全部音频轨与主轨音频求和（不做响度归一化——那是创意决策）。
-- `subtitles`：合并规则见 §5。
+- `audio`：在 `[from,to)` 内按 `fit` 铺设，施加 `volume`、`fadeIn`、`fadeOut`；声明 `duck.amount > 0` 的轨再以主轨混音为 sidechain 做一次压缩（`sidechaincompress`，`mix = amount`），让旁白响起时 BGM 自动让路；全部音频轨与主轨音频求和（不做响度归一化——那是创意决策）。
+- `subtitles`：合并规则见 §5；`mode: burn` 时合并后的 SRT 另经 `subtitles` 视频滤镜烧进画面（在叠加轨之上、最终 `format` 之前）。
 - `overlay`：在 `[from,to)` 内叠加。
 
 ## 3. `kind: Profile`
@@ -456,7 +464,7 @@ build:                         # 仅 build 成功后
 - `source: scenes`：每个场景的 `produces.subtitle`（SRT，UTF-8）。每条 cue 时间加上该场景 `startᵢ`；超出 `[startᵢ, endᵢ)` 的部分裁剪；完全超出者丢弃。
 - `source: <资产名>`：该资产的文件（静态 `uri` 或节点产出的 `.srt`）按原时间轴使用，只做裁剪到 `[0, total)`。
 
-两种情况都会：把越界丢弃的 cue 与"起点在窗口内但结尾超出、被截短"的 cue 记为 `build` 警告（后者意味着字幕可能被截断，值得看一眼）；重新编号；按开始时间稳定排序；毫秒精度。输出 `<output stem>.srt`，`mode: embed` 时另封装为字幕流。
+两种情况都会：把越界丢弃的 cue 与“起点在窗口内但结尾超出、被截短”的 cue 记为 `build` 警告（后者意味着字幕可能被截断，值得看一眼）；重新编号；按开始时间稳定排序；毫秒精度。输出 `<output stem>.srt`，`mode: embed` 时另封装为字幕流，`mode: burn` 时另烧进画面。三种模式都写出 sidecar 文件——它是烧录的源，也是分镜校对的依据。`burn` 需要 ffmpeg 的 `subtitles` 滤镜（libass）；缺失时 `doctor` 报告、`build` 以 `missing-dependency`（退出 3）在执行前失败，不留半成品。
 
 ## 6. CLI 契约
 
@@ -480,10 +488,11 @@ build:                         # 仅 build 成功后
 | `plan` | film, profiles, 产物探测 | — | 工作单，见 §6.1 |
 | `storyboard` | film, profiles, 产物探测（不委托 task `validate`） | build/storyboard.json, build/storyboard.html | 分镜评审表，见 §6.3；不写 lock |
 | `run <id> [--force]` | 同上 | 产物, lock | `cli` + `invocation` 或 `http` + `http`；`http` 且节点已 `ready` 时无 `--force` 则拒绝（`2`），不调用、不落位、不写 lock |
-| `build [--draft]` | 同上 | 中间片段, 成片, filtergraph, srt, lock | |
+| `build [--draft]` | 同上 | 中间片段, 成片, filtergraph, srt, chapters.txt, lock | |
 | `status` | 同上 | lock | |
-| `doctor` | profiles | — | |
+| `doctor` | profiles | — | 另报告 `asplit` / `sidechaincompress` / `subtitles` 滤镜是否可用（只在 film 用到 duck / burn 时才判为问题） |
 | `import hyperstory <schema.json> [--out <path>] [--force]` | hyperstory schema | 新的 filmkit.yaml | 单向导入，见 §8 |
+| `import script <notes.md> [--out <path>] [--force]` | 口播稿 markdown | 新的 filmkit.yaml | 单向导入，见 §9 |
 
 ### 6.1 `plan` 输出
 
@@ -514,8 +523,9 @@ build:                         # 仅 build 成功后
 
 - `build/clips/<id>.<ext>` 中间片段
 - `build/compose.filtergraph.txt` — 归一化与合成阶段的全部 filtergraph 与 argv，纯文本，路径相对项目目录；同一 Film + 同一产物集合 → 逐字相同
+- `build/chapters.txt` — 仅当声明 `timeline.chapters` 时存在：ffmetadata 章节文件，确定性内容（毫秒整数、无时间戳）
 - `<output.path>`；`--draft` 时为 `<stem>.draft.<ext>`，分辩率缩至宽 ≤ 480 且不做规格校验
-- 有字幕轨时 `<stem>.srt`
+- 有字幕轨时 `<stem>.srt`（三种模式都写，供校对；`burn` 另烧进画面）
 
 成片先写入 `build/.tmp/` 再重命名到目标；ffprobe 校验失败时目标不落位，退出 `tool-failure`，lock 不写。
 
@@ -600,7 +610,20 @@ build:                         # 仅 build 成功后
 
 无法表达的字段（视觉/字幕/运动/转场风格、`videoPrompt`、`videoInstruct`、`voiceSpeed`、`videoAudio.volume`、计划总时长）写入 `metadata.annotations` 并在导入报告中逐条 warning；**不猜测任何工具的参数字段**。目标文件已存在时拒绝写入，除非 `--force`。导入结果 MUST 立即能被 `plan` 使用（引用文件缺失只出现在 `missingFiles`）。
 
-## 9. 稳定性
+## 9. `import script`
+
+`filmkit import script <notes.md>` 把知识口播稿（markdown）单向转换为新的 `filmkit.yaml`：
+
+| 输入 | 输出 |
+| --- | --- |
+| 第一个 `#` 标题 | `metadata.title`（无标题时用文件名） |
+| 每个 `##` 小节 | 一个场景：id 取标题 slug（无拉丁字母时 `scene-NN`，重复时 `-2` 后缀）；`intent.description` 为标题，`intent.narration.text` 为小节正文（去一级列表/引用标记后以空格连接） |
+| 小节内第一张本地图片 `![](path)` | 该场景 `produces.image`；无图时指向 `./assets/<id>.png` 占位，由 Agent 补齐 |
+| 正文字符数 | `duration` 估计值：字符数 / 4 每秒，向上取 0.1s，下限 2s——只是估计，`durationPolicy: min` 让真实旁白决定下限；无正文时 `exact` |
+
+远程图片（`http(s)://`）不成为 `produces`（`build` 不下载）。标题区（首个 `##` 之前）的正文被忽略。来源文件名记入 `metadata.annotations["script.source"]`；估计时长规则与占位图逐条 warning。目标文件已存在时拒绝写入，除非 `--force`。导入结果 MUST 立即能被 `plan` 使用（场景为缺失节点、executor 为 `place files`）。
+
+## 10. 稳定性
 
 - `v1alpha1` 期间字段可变；进入 `v1` 后只做加法。
 - 标注 **保留** 的字段在被实现前不改变含义。

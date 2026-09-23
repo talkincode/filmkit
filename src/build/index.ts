@@ -5,6 +5,8 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { CHAPTERS_PATH, formatChaptersFile, resolveChapters } from "../chapters.ts";
+import { ffmpegFilterAvailable } from "../doctor.ts";
 import { FilmkitError, invalid, missingDependency, toolFailure, type ErrorDetail } from "../errors.ts";
 import { exec, execFailure, isOnPath } from "../exec.ts";
 import { sha256File, sha256Text } from "../hash.ts";
@@ -28,6 +30,7 @@ export interface BuildResult {
   output: string;
   filtergraph: string;
   subtitles?: string;
+  chapters?: string;
   total: number;
   draft: boolean;
   dryRun: boolean;
@@ -80,10 +83,17 @@ export function build(a: Analysis, opts: BuildOptions): BuildResult {
     subtitlePath = outPath.replace(/\.[a-z0-9]+$/, ".srt");
   }
 
+  // ---- chapters (spec §1.8.3): resolve against the derived timeline ----
+  const { chapters: resolvedChapters, errors: chapterErrors } = resolveChapters(film, a.timeline);
+  if (chapterErrors.length) throw new FilmkitError(chapterErrors);
+  const chaptersPath = resolvedChapters.length ? CHAPTERS_PATH : undefined;
+
   const compose = planCompose(a, geo, clips, {
     draft: opts.draft,
     subtitlePath,
     embedSubtitles: subTrack?.kind === "subtitles" && subTrack.mode === "embed",
+    burnSubtitlesPath: subTrack?.kind === "subtitles" && subTrack.mode === "burn" ? subtitlePath : undefined,
+    chaptersPath,
   });
 
   const steps: FfmpegStep[] = [];
@@ -102,12 +112,17 @@ export function build(a: Analysis, opts: BuildOptions): BuildResult {
   mkdirSync(resolve(dir, "build/clips"), { recursive: true });
   mkdirSync(resolve(dir, "build/.tmp"), { recursive: true });
   writeFileSync(resolve(dir, FILTERGRAPH_PATH), filtergraphText, "utf8");
-  // Filter scripts referenced by -filter_complex_script.
+  // The same graphs travel inline in each step's argv via -filter_complex;
+  // these files stay as deterministic debug artifacts for reproducing a
+  // stage by hand.
   for (const c of clips) {
     writeFileSync(resolve(dir, `build/clips/${c.scene.scene.id}.filter`), c.step.filterComplex + "\n", "utf8");
     if (c.gap) writeFileSync(resolve(dir, `build/clips/${c.scene.scene.id}.gap.filter`), c.gap.step.filterComplex + "\n", "utf8");
   }
   writeFileSync(resolve(dir, "build/compose.filter"), compose.step.filterComplex + "\n", "utf8");
+  if (chaptersPath) {
+    writeFileSync(resolve(dir, chaptersPath), formatChaptersFile(resolvedChapters), "utf8");
+  }
   if (subtitlePath && mergedSrt !== undefined) {
     mkdirSync(dirname(resolve(dir, subtitlePath)), { recursive: true });
     writeFileSync(resolve(dir, subtitlePath), mergedSrt, "utf8");
@@ -117,6 +132,7 @@ export function build(a: Analysis, opts: BuildOptions): BuildResult {
     output: compose.finalOutput,
     filtergraph: FILTERGRAPH_PATH,
     subtitles: subtitlePath,
+    chapters: chaptersPath,
     total: compose.total,
     draft: opts.draft,
     dryRun: Boolean(opts.dryRun),
@@ -126,6 +142,12 @@ export function build(a: Analysis, opts: BuildOptions): BuildResult {
 
   if (!isOnPath("ffmpeg") || !isOnPath("ffprobe")) {
     throw new FilmkitError(missingDependency("ffmpeg and ffprobe are required for build", { hint: "run `filmkit doctor`" }));
+  }
+  // Fail fast for a burn without libass: the filtergraph would plan fine but
+  // ffmpeg would die mid-build, so report the missing dependency (exit 3) before
+  // executing anything. `--dry-run` skips this: planning needs no libass.
+  if (compose.step.filterComplex.includes("subtitles=") && !ffmpegFilterAvailable(dir, "subtitles")) {
+    throw new FilmkitError(missingDependency('ffmpeg is missing the "subtitles" filter (libass) required by subtitle mode "burn"', { hint: "run `filmkit doctor`; use mode: sidecar or embed instead" }));
   }
   const tmpAbs = resolve(dir, compose.tmpOutput);
   rmSync(tmpAbs, { force: true });
@@ -181,6 +203,20 @@ export function verifyOutput(a: Analysis, probe: Probe, expectedTotal: number): 
   if (probe.format !== PROBE_FORMAT[out.container]) bad("container", PROBE_FORMAT[out.container], probe.format);
   if (probe.duration === undefined || Math.abs(probe.duration - expectedTotal) > out.duration.tolerance) {
     bad(`duration (tolerance ${out.duration.tolerance}s)`, expectedTotal, probe.duration);
+  }
+  const { chapters: wanted } = resolveChapters(a.loaded.film, a.timeline);
+  if (wanted.length) {
+    const got = probe.chapters ?? [];
+    if (got.length !== wanted.length) {
+      bad("chapters", `${wanted.length} chapters`, `${got.length} chapters`);
+    } else {
+      wanted.forEach((w, i) => {
+        const g = got[i]!;
+        if (g.title !== w.title || Math.abs(g.start - w.start) > 0.05) {
+          bad(`chapter ${i} ("${w.title}" at ${w.start}s)`, `"${w.title}" at ${w.start}s`, `"${g.title}" at ${g.start}s`);
+        }
+      });
+    }
   }
   return problems;
 }

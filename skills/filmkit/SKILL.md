@@ -168,6 +168,15 @@ Rules that matter most:
   of `duration` and the media (the right choice for narration-driven scenes).
 - **Audio per scene**: `produces.audio` replaces the clip's own sound by
   default (`audioMode: replace`); `mix` sums both; `keep` uses the clip's.
+- **BGM ducking**: `duck: { amount: 0.8 }` on an audio track lowers it under
+  the narration via a sidechain compressor (`mix = amount`; 0 = off).
+  Tune `attack`/`release` (seconds) only when the default pump is audible.
+- **Chapters**: `timeline.chapters: [{ title: …, scene: s1 }]` (or `start:`
+  seconds) exports container chapters; list them in time order. `build`
+  writes `build/chapters.txt` and verifies titles/starts with ffprobe.
+- **Burned subtitles**: `mode: burn` renders the merged SRT into the picture
+  (vertical feeds need this); it still writes the sidecar for review. Needs
+  ffmpeg libass — `doctor` tells you; without it `build` exits 3 fast.
 - **Generated assets**: an asset may have `impl` + `produces` instead of `uri`;
   it becomes a node in `plan` like a scene (this is how scorekit-generated
   music or a TTS voice file enters the project).
@@ -188,6 +197,20 @@ duration) are kept in `metadata.annotations` and reported as warnings. Scenes
 become `filmkit/static` nodes, so your next steps are the same as any project:
 `filmkit plan`, place or produce the files, then `filmkit build`. Point a scene
 at a video-generation Profile yourself when it needs generated footage.
+
+## Importing a knowledge script
+
+```bash
+filmkit import script ./notes.md --out filmkit.yaml   # never overwrites without --force
+```
+
+Each `##` section becomes a narration scene: the heading is the id seed and
+`intent.description`, the prose is `intent.narration.text`, the section's first
+local image is `produces.image` (missing pictures become `./assets/<id>.png`
+placeholders listed in `missingFiles`). Durations are estimates (4 characters
+per second, floor 2s, `durationPolicy: min` so the real TTS decides the floor).
+Title-area prose before the first `##` is ignored; remote images stay yours.
+Next: `filmkit plan`, produce narration and pictures, then `filmkit build`.
 
 ## Music that must hit the picture cuts (`fit: exact`)
 
@@ -410,6 +433,10 @@ What to know:
   the tool with the exact fix when missing.
 - `matte-image` cuts a background out of a still (PNG with alpha) for overlays
   and card scenes.
+- `mode: burn` renders the same merged SRT into the picture on top of the
+  overlays — what vertical platforms need. The sidecar is still written, so
+  the storyboard keeps showing the text. Without libass `build` exits 3
+  before executing anything; use `sidecar`/`embed` there.
 
 ### Wrapping your own local tool
 
@@ -636,9 +663,8 @@ Notes that save a round trip:
 - Transparent pictures composite onto `output.background` (a card scene), so
   pick a background that suits the cards; opaque images keep the plain
   scale+pad path.
-- Burned *subtitles* (many cues, per-cue timing) are not implemented: render one
-  PNG per cue with this task and declare one overlay track per cue with its
-  `from`/`to`, or move the captions into a HyperFrames/Remotion segment.
+- Per-cue PNG overlays are still the way to style individual cues (fonts,
+  colors, animation): `mode: burn` renders the plain SRT look via libass.
 
 ## Profiles: registering a tool
 
@@ -724,6 +750,7 @@ tasks:
 | `filmkit status` | Observe produces, write lock, report |
 | `filmkit doctor` | Environment + Profile requirements |
 | `filmkit import hyperstory <schema.json> [--out <path>] [--force]` | Convert a Hyperstory schema into a new filmkit.yaml |
+| `filmkit import script <notes.md> [--out <path>] [--force]` | Convert a knowledge-script markdown file into a new filmkit.yaml |
 
 Global options: `--version`, `--film <path>` (default `./filmkit.yaml`), `--json`.
 Exit codes: `0` ok · `1` io · `2` invalid input · `3` missing dependency · `4` external tool failure.

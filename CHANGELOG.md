@@ -6,8 +6,11 @@ changing the protocol.
 
 ## Unreleased
 
-- **`filmkit run` 付费重放保护（`runtime.type: http`）。** 已 `ready`（产物在位且 `impl.params` 未变）的 http 节点再次 `filmkit run <id>` 不再静默重调供应商：默认退出 `2`，不发起任何请求、不写产物、不写 lock，错误明示费用未知并要求 `--force`（`filmkit run <id> --force`）作为第二次购买的显式授权。`missing` / `partial` / `stale` 仍可直接执行（`plan` 列出即待办）；本地 `cli` 节点不受限。规范见 `docs/spec.md` §3.5 / §6，纪律见 skill "Cost discipline"。
+## 0.3.0 — storyboard review sheet, knowledge-video batch, ffmpeg 8+ builds
 
+- **构建传图改走内联 `-filter_complex`。** ffmpeg 8+ 移除了 `-filter_complex_script`，三处组 argv（场景片段、垫片、合成）改传内联 filtergraph；执行走 argv 数组，无 shell 转义问题。`build/*.filter` 文件与 `compose.filtergraph.txt` 照常写出，前者现为纯调试产物。确定性、原子落位与退出码契约不变。
+- **知识视频包：章节、旁白避让、烧录字幕、`import script`。** `timeline.chapters`（`{ title, scene | start }`）经 `build/chapters.txt`（ffmetadata，确定性）以 `-map_chapters` 注入成片并由 ffprobe 校验；音频轨 `duck: { amount }` 以主轨混音为 sidechain 做旁白避让（`amount` 为干湿比，0 关闭）；字幕轨 `mode: burn` 经 libass 烧进画面（sidecar 照常写出供校对，缺 libass 时 `doctor` 报告、`build` 以退出 3 在执行前失败）；`filmkit import script <notes.md>` 把口播稿 markdown（`#` 标题 + `##` 小节 + 首图）转为可直接 `plan` 的 filmkit.yaml（字符数估时长、`durationPolicy: min`、缺图占位）。协议见 spec §1.8.3 / §2.6 / §5 / §9，矩阵见 roadmap 功能 22–25。
+- **`filmkit run` 付费重放保护（`runtime.type: http`）。** 已 `ready`（产物在位且 `impl.params` 未变）的 http 节点再次 `filmkit run <id>` 不再静默重调供应商：默认退出 `2`，不发起任何请求、不写产物、不写 lock，错误明示费用未知并要求 `--force`（`filmkit run <id> --force`）作为第二次购买的显式授权。`missing` / `partial` / `stale` 仍可直接执行（`plan` 列出即待办）；本地 `cli` 节点不受限。规范见 `docs/spec.md` §3.5 / §6，纪律见 skill "Cost discipline"。
 - **`filmkit storyboard` — the Storyboard Sheet.** Before the first paid
   generation (and again before the final build), derive the film plus current
   produces into a regular JSON document (`build/storyboard.json`) and render it

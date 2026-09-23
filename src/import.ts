@@ -229,7 +229,7 @@ function videoPromptScenesToAnnotations(prompts: Record<string, string>): Record
   return out;
 }
 
-function slug(s: string): string {
+export function slug(s: string): string {
   const out = s
     .toLowerCase()
     .replace(/\.[a-z0-9]+$/, "")
@@ -240,6 +240,6 @@ function slug(s: string): string {
   return out === "" ? "item" : /^[a-z0-9]/.test(out) ? out : `x-${out}`;
 }
 
-function yamlStr(s: string): string {
+export function yamlStr(s: string): string {
   return JSON.stringify(s);
 }
