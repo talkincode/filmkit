@@ -6,10 +6,12 @@ description: >
   render a video from scenes (images, clips, narration, subtitles, music) via
   a filmkit.yaml, when a project already contains filmkit.yaml, or when the
   user mentions filmkit, a video orchestration file, scene timeline, or
-  composing generated assets into a final MP4 without a GUI. Not for creating
-  the individual assets themselves (use the tool's own skill: HyperFrames,
-  qwentts, imagine, scorekit …) — filmkit tells you which files to produce and
-  composes them.
+  composing generated assets into a final MP4 without a GUI. When the user is
+  preparing a video for publication, plan for a separate platform cover or
+  thumbnail image as well; it is not the same as an opening title card. Not for
+  creating the individual assets themselves (use the tool's own skill:
+  HyperFrames, qwentts, imagine, scorekit …) — filmkit tells you which files to
+  produce and composes them.
 ---
 
 # filmkit — compile a video from filmkit.yaml
@@ -112,6 +114,29 @@ Start every session at **Setup check** above — never work blind. Then:
    mismatch nothing is written to the target path.
 7. **Check**: `filmkit status` writes `filmkit.lock.yaml` and shows which
    produces exist and whether the build is up to date.
+
+## Publishing cover — a separate image deliverable
+
+If the user intends to publish the video, plan the platform cover/thumbnail
+before producing the final cut. It is a separate still image, not the first
+scene, an in-video title card, or the MP4 itself. Ask which platform the cover
+is for when its size or aspect ratio is not already specified, then check the
+current platform requirements before creating it.
+
+Keep the cover in the project and declare it as a separate asset so `plan`
+surfaces a missing file before delivery:
+
+```yaml
+assets:
+  cover: { kind: image, uri: ./delivery/cover.png }
+```
+
+If a suitable image-generation Profile is available, the cover can instead be
+a generated `assets.cover` node with its own `produces.image` path. Create the
+image with the appropriate image tool or Profile, then verify that the file
+exists and meets the target platform's image requirements. `filmkit build` does
+not create or package a publishing cover; do not report a publish-ready video
+package until the separate cover file is included in delivery.
 
 ## Writing filmkit.yaml
 
