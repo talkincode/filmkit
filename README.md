@@ -6,7 +6,7 @@
 filmkit.yaml ─► validate ─► plan ─► storyboard ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
 ```
 
-> 状态：`0.2.0`（声明式视频生成 API + 发布链路）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
+> 状态：`0.4.0`（`colab-comfy`：Colab GPU 上批量生成 + 硬 CU 预算）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
 bun bin/filmkit.ts --version   # 版本
