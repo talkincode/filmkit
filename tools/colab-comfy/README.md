@@ -61,7 +61,7 @@ every candidate. Review them, set `pick: k` in `filmkit.yaml` (a human or the ag
 ```
 colab-comfy validate <job flags> --out P --record R   offline, free; the Profile's delegated validate
 colab-comfy batch --estimate [--film F]               CU estimate + gate; makes no colab call at all
-colab-comfy batch [--yes] [--budget CU] [--gpu L4] [--rate CU_PER_H] [--max-wall SEC] [--nodes a,b] [--no-materialize] [--json]
+colab-comfy batch [--yes] [--budget CU] [--gpu auto|L4|A100] [--rate CU_PER_H] [--max-wall SEC] [--nodes a,b] [--no-materialize] [--json]
 colab-comfy materialize <job flags> --out P --record R   used by `filmkit run`
 colab-comfy reap [--dry-run]                          stop OUR leaked fk-* sessions (never anyone else's)
 colab-comfy doctor [--json]                           { ready, checks[] }
@@ -99,8 +99,25 @@ each cost CU, so it needs `--yes`. `--dry-run` previews. Prune is refused while 
   `batch.lock` prevents two batches per project.
 - **Estimate CU first.** `batch` prints the estimate and refuses (exit 5) when a batch has more than one job without
   `--yes`, when the estimate exceeds the budget (default 1.0 CU; `--yes` does **not** raise it, only `--budget` does), or on
-  a non-L4 GPU without `--yes` and an explicit `--rate`. Over 1 CU, batches and A100/H100 always need the user's
-  confirmation: report the estimate, wait for approval, then pass `--yes`.
+  an A100 without `--yes` (an uncalibrated GPU also needs an explicit `--rate`). Over 1 CU, batches and A100 always need
+  the user's confirmation: report the estimate, wait for approval, then pass `--yes`.
+- **GPU choice (`--gpu auto`, the default).** Only **L4** and **A100** are candidates (`autoGpus` in `estimates.json`); never
+  H100, never `--high-mem`. The helper estimates both and opens the cheaper one (ties → L4): small batches stay on L4
+  exactly as before, A100 wins from ~5–6 portrait clips on (see the table below). An explicit `--gpu L4` / `--gpu A100`
+  is honoured as given and never switched. `--rate` is refused with `auto` (a rate belongs to one GPU).
+- **A100 unavailable.** If `auto` chose A100 and `colab new --gpu A100` fails (not an auth failure), the helper falls back to
+  L4 **only if the L4 estimate also fits `--budget`**, and only after `colab sessions` shows nothing left over (a
+  half-created session is stopped and verified first; any other session aborts). The fallback is logged and recorded
+  (`gpuFallback` in the session result and `ledger.jsonl`). Still exactly one session. An L4 pick never escalates.
+- **Real rate as the budget guard.** Right after `new`, `colab usage` reports the live `Usage rate`; the estimate is
+  re-projected at that rate (with the margin) and the batch aborts before upload (`aborted-deadline`, `budget`, session
+  stopped) if it no longer fits. The deadline (guard and VM watchdog) is recomputed from the real rate; the detached guard
+  re-reads it from `active.json`.
+- **Settled cost.** Billing lags the stop (A100 benchmark: 0.16 CU read right after the stop, 0.60 CU settled). After the
+  verified stop the helper polls `colab usage` every 30 s (`COLAB_COMFY_SETTLE_INTERVAL_SEC`) until two consecutive readings
+  are equal **and** the spend is plausible (≥ ½ · rate · session lifetime; a stale balance also reads the same twice), for
+  at most 210 s (`COLAB_COMFY_SETTLE_TIMEOUT_SEC`). On timeout the actual CU is recorded as **provisional**
+  (`usageSettled: false` in the result, ledger, clip cost and run record, plus a warning): check `colab usage` later.
 - **Never print tokens.** ADC stays on the host and is used only by `colab`. Every captured line goes through a redactor
   (OAuth/JWT/`Bearer`/`hf_…`/`colab-runtime-proxy-token=…` patterns). Secrets are never passed with `colab exec --env`
   (they would appear in tracebacks); an optional `HF_TOKEN` is uploaded as a 0600 file that the VM deletes after setup.
@@ -122,32 +139,41 @@ each cost CU, so it needs `--yes`. `--dry-run` previews. Prune is refused while 
 ## CU estimate
 
 ```
-CU = (startup + firstLoad + teardown + Σ_jobs( warm[variant] · scale + download )) / 3600 · rate · margin
+CU   = (startup + firstLoad + teardown + Σ_jobs( init + warm[variant] · scale + download )) / 3600 · rate · margin
 scale = (w·h·frames) / (1344·768·124)
 ```
 
-Coefficients live in `estimates.json` (calibrated from the proven Ref2VA kit's measurements):
+`estimates.json` (`colab-comfy/estimates@2`) holds one calibrated entry per GPU, fitted to the real runs (M8 L4 run and the
+A100 benchmark, both 2026-10-18). The 1.2 margin stays on top. A GPU without an entry uses the L4 timings and needs
+`--rate` + `--yes`.
 
-| Coefficient | Value |
-|---|---|
-| startup (session + pip + 48 GB weights) | 480 s |
-| first model load | 120 s |
-| teardown | 120 s |
-| download per clip | 10 s |
-| warm generation at 1344×768×124: dense / VSA 0.75 / VSA 0.5 | 260 / 190 / 220 s |
-| L4 rate | 1.7 CU/h |
-| margin | 1.2 |
+| Coefficient | L4 | A100 (40 GB) |
+|---|---|---|
+| rate (`colab usage`) | 1.71 CU/h | 5.30 CU/h |
+| startup (`new` + pip + 48 GB weights + ComfyUI start) | 225 s | 215 s |
+| first model load (once per session) | 0 s (inside the per-clip init) | 48 s |
+| per-clip init (model re-init: prompt / VSA patch change) | 80 s | 10 s |
+| warm generation at 1344×768×124: dense / VSA 0.75 / VSA 0.5 | 316 / 276 / 298 s | 61 / 53 / 58 s |
+| teardown | 30 s | 30 s |
+| download per clip | 10 s | 10 s |
 
-Frames are `5 + 17k ≥ ceil(duration · 24)`; width/height are multiples of 32.
+This reproduces the measurements: L4 s1a / s3a / s4a 318 / 354 / 340 s per clip; A100 s1a 104 s first, 56 s warm. A100
+VSA values are scaled from the L4 ratios (only dense was measured on A100). Frames are `5 + 17k ≥ ceil(duration · 24)`;
+width/height are multiples of 32.
 
-| Example | Estimate |
-|---|---|
-| EP03 test: 3 clips (dense 107 f, VSA 0.75 141 f, VSA 0.5 141 f at 704×1280) | ≈ 0.77 CU |
-| one clip (dense, 4 s, 704×1280) | ≈ 0.52 CU (the 12-minute fixed cost dominates) |
+| Example (704×1280) | L4 | A100 | `auto` picks |
+|---|---|---|---|
+| 1 dense clip (107 f) | 0.33 CU | 0.63 CU | L4 |
+| EP03 test: 3 clips (dense 107 f, VSA 0.75 141 f, VSA 0.5 124 f) | 0.74 CU | 0.89 CU | L4 |
+| 5 dense clips | 1.08 CU | 1.10 CU | L4 |
+| 6 dense clips | 1.27 CU | 1.22 CU | A100 |
+| 8 dense clips | 1.64 CU | 1.45 CU | A100 |
 
-The rate of 1.7 is conservative (the reference session measured about 1.37 CU/h). `colab usage` reports the balance with
-two decimals, so the actual CU per session has 0.01 resolution; per-clip `attributedCU` splits the session CU by
-generation seconds. Each real run appends estimate-vs-actual to `ledger.jsonl` for recalibration.
+Actuals for comparison: the M8 L4 session (3 clips) settled at 0.51 CU against the old 0.75 estimate; the A100 benchmark
+(two s1a renders) settled at 0.60 CU, where the old table (L4 timings at 5.4 CU/h) would have said ~1.8 CU for one clip.
+`colab usage` reports the balance with two decimals, so the actual CU per session has 0.01 resolution; per-clip
+`attributedCU` splits the session CU by generation seconds. Each real run appends estimate-vs-actual (with `usageSettled`,
+`gpuRequested`, `rateObservedCuPerHour`) to `ledger.jsonl` for further recalibration.
 
 ## Verified CLI surface (colab 0.7.4, summary of `M0-FINDINGS.md`)
 
@@ -192,7 +218,7 @@ EP03 test film (s1a dense 107 f, s3a VSA 0.75 141 f, s4a VSA 0.5 124 f; all 704�
 | Stop | helper: stop + `sessions` verified; independent `colab sessions` → none, `usage` → 0 active assignments |
 | Re-run | second `batch --estimate` → nothing to generate; `filmkit run s1a` → lock byte-identical, no session |
 
-Findings for recalibration (not applied yet; one data point):
+Findings for recalibration (applied in `estimates.json` since; see "CU estimate"):
 - Setup is much faster than the 480 s assumed (≈ 225 s from `new` to the first submit).
 - Each job re-initialises the model (~70–80 s) because the prompt/VSA patch changes, so "warm" generation at portrait
   704×1280 is ~320–355 s per clip, and VSA gave **no** speed-up over dense at this shape on L4 (all ~35–38 s/it).
@@ -227,6 +253,11 @@ Nothing in `bun test` contacts Google, Hugging Face or GitHub, or spends anythin
 - **VSA at portrait resolution on L4 is untested** until the real EP03 run; an OOM there is a valid finding (recorded, the
   session still stops).
 - **`colab usage` has 2-decimal resolution:** actual-CU numbers for sub-0.05 CU sessions are noisy.
+- **Settling is a heuristic:** if billing stays behind for longer than the settle timeout, or posts in steps larger than the
+  plausibility floor allows for, the recorded CU is provisional or low; `usageSettled` says which, and `colab usage` later
+  gives the truth.
+- **A100 numbers rest on one benchmark** (dense only; VSA derived from L4 ratios). The auto break-even shifts if A100's
+  real per-clip time differs; the ledger records what each run actually cost.
 - **EP03 used FL2VA** (first frame + driving audio); this template is Ref2VA, so it proves the pipeline and cost model, not lip-sync.
   An FL2VA template (`h3-fl2va@1`) is a follow-up.
 - **Bypassing `filmkit run`** (writing produces by hand or from another script) leaves the node `stale` forever, because only
