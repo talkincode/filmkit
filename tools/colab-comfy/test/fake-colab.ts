@@ -24,6 +24,19 @@ import { basename, dirname, join } from "node:path";
 
 export const FAKE_BIN_DIR = join(import.meta.dir, "bin");
 export const FAKE_PYLIB = join(import.meta.dir, "fake-pylib");
+
+// Detached kernel processes can import the stub without PYTHONDONTWRITEBYTECODE,
+// leaving __pycache__ under a tracked dir (fails `check:tracked`). Sweep on exit.
+function sweepPycache(dir: string): void {
+  if (!existsSync(dir)) return;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const p = join(dir, e.name);
+    if (e.name === "__pycache__") rmSync(p, { recursive: true, force: true });
+    else sweepPycache(p);
+  }
+}
+process.on("exit", () => sweepPycache(FAKE_PYLIB));
 export const FAKE_TOKEN = "FAKE.JWT.eyJhbGciOiJFUzI1NiJ9.fake.sig";
 
 /** Environment that makes `colab` resolve to the fake (the caller's env is preserved). */
