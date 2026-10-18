@@ -48,7 +48,7 @@ bun bin/filmkit.ts plan          # 列出还缺的文件与需要产出的场景
 
 唯一硬性依赖是 `ffmpeg` / `ffprobe`（`filmkit doctor` 会检查）。Agent 使用说明在 [skills/filmkit/SKILL.md](skills/filmkit/SKILL.md)。
 
-随仓库分发的 Profile（都可选，复制进项目后引用）：`profiles/hyperframes.yaml`（HTML composition → 片段，含本地 TTS / 转录 / 抠像）、`profiles/remotion.yaml`（React composition → 片段 / 单帧）、`profiles/imagine.yaml`（图片生成 / 文本图层）、`profiles/scorekit.yaml`（音乐生成）、`profiles/qwentts.yaml`（中文旁白：预置音色 + 情绪控制 / 声音克隆 / 文本建声）、`profiles/seedance.yaml` 与 `profiles/gemini-omni.yaml`（视频生成 API，密钥走环境变量 `ARK_API_KEY` / `GEMINI_API_KEY`，filmkit 从不打印、从不写盘）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。本机 ffmpeg 没有 `drawtext`／libass，文字进画面用 `imagine text` 出透明 PNG（卡片场景或叠加轨），由带 alpha 的画面合成到 `output.background`。
+随仓库分发的 Profile（都可选，复制进项目后引用）：`profiles/hyperframes.yaml`（HTML composition → 片段，含本地 TTS / 转录 / 抠像）、`profiles/remotion.yaml`（React composition → 片段 / 单帧）、`profiles/imagine.yaml`（图片生成 / 文本图层）、`profiles/scorekit.yaml`（音乐生成）、`profiles/qwentts.yaml`（中文旁白：预置音色 + 情绪控制 / 声音克隆 / 文本建声）、`profiles/seedance.yaml` 与 `profiles/gemini-omni.yaml`（视频生成 API，密钥走环境变量 `ARK_API_KEY` / `GEMINI_API_KEY`，filmkit 从不打印、从不写盘）。`profiles/colab-comfy.yaml`（Google Colab GPU 上的 ComfyUI 工作流，首个模板 MiniMax H3 Ref2VA；批量与成本由 `tools/colab-comfy/` 辅助工具承担：`colab-comfy batch` 一个会话出片、估算 CU、必 stop，`filmkit run` 再零成本落位，见 `tools/colab-comfy/README.md`）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。本机 ffmpeg 没有 `drawtext`／libass，文字进画面用 `imagine text` 出透明 PNG（卡片场景或叠加轨），由带 alpha 的画面合成到 `output.background`。
 
 ## 开发
 

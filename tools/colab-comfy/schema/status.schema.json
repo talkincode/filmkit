@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "colab-comfy/status@1",
+  "title": "colab-comfy status.json (VM runner -> host, one FKSTATUS line per poll)",
+  "description": "Written atomically by vm/fk_runner.py (single writer). vm/fk_poll.py prints it on one `FKSTATUS` line and may add runnerAlive / releasing. Success is decided from this document, never from `colab exec`'s exit code (M0 A1). Contains no secrets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "phase", "heartbeatAt", "error", "setup", "env", "jobs"],
+  "properties": {
+    "protocol": { "const": "colab-comfy/v1" },
+    "phase": { "enum": ["setup", "comfy-start", "generating", "done", "failed", "aborted"], "description": "done/failed/aborted are terminal." },
+    "heartbeatAt": { "type": "number", "description": "Epoch seconds of the last write." },
+    "error": { "type": ["string", "null"] },
+    "setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt", "finishedAt", "pipSec", "downloadSec"],
+      "properties": {
+        "startedAt": { "type": "number" },
+        "finishedAt": { "type": "number" },
+        "pipSec": { "type": "number" },
+        "downloadSec": { "type": "number" }
+      }
+    },
+    "env": {
+      "description": "null until setup finished. Everything a run record needs about the VM.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gpu", "python", "torch", "cuda", "comfyKitchen", "comfyui", "customNodes", "weights"],
+          "properties": {
+            "gpu": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "driver", "memoryMiB"],
+                  "properties": { "name": { "type": "string" }, "driver": { "type": "string" }, "memoryMiB": { "type": "integer", "minimum": 0 } }
+                }
+              ]
+            },
+            "python": { "type": ["string", "null"] },
+            "torch": { "type": ["string", "null"] },
+            "cuda": { "type": ["string", "null"] },
+            "comfyKitchen": { "type": ["string", "null"] },
+            "comfyui": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repo", "commit"],
+              "properties": { "repo": { "type": "string" }, "commit": { "type": "string" } }
+            },
+            "customNodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["repo", "commit"],
+                "properties": { "repo": { "type": "string" }, "commit": { "type": "string" } }
+              }
+            },
+            "weights": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["repo", "file", "revision", "sha256", "bytes", "verified"],
+                "properties": {
+                  "repo": { "type": "string" },
+                  "file": { "type": "string" },
+                  "revision": { "type": "string" },
+                  "sha256": { "type": ["string", "null"] },
+                  "bytes": { "type": "integer", "minimum": 0 },
+                  "verified": { "enum": ["size", "sha256", "fake"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "jobs": { "type": "array", "items": { "$ref": "#/$defs/job" } },
+    "watchdog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "at"],
+      "properties": { "reason": { "enum": ["hard-deadline", "idle-ttl", "heartbeat-missing"] }, "at": { "type": "number" } },
+      "description": "Present only after the VM watchdog fired."
+    },
+    "runnerAlive": { "type": "boolean", "description": "Added by fk_poll.py, not part of status.json on disk." },
+    "releasing": { "const": true, "description": "Added by fk_poll.py when release.request exists: the session is ending." }
+  },
+  "$defs": {
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "state", "promptId", "submittedAt", "finishedAt", "wallSec", "peakVramMiB", "output", "error"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "state": { "enum": ["queued", "running", "done", "failed"] },
+        "promptId": { "type": ["string", "null"] },
+        "submittedAt": { "type": ["number", "null"] },
+        "finishedAt": { "type": ["number", "null"] },
+        "wallSec": { "type": ["number", "null"] },
+        "peakVramMiB": { "type": ["integer", "null"], "description": "null when nvidia-smi is unavailable." },
+        "output": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "bytes", "sha256"],
+              "properties": { "path": { "type": "string" }, "bytes": { "type": "integer", "minimum": 1 }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+            }
+          ]
+        },
+        "error": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "message"],
+              "properties": {
+                "kind": { "enum": ["setup", "comfy-start", "generating", "comfy", "oom", "timeout", "output-missing", "aborted"] },
+                "message": { "type": "string" }
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "state": { "const": "done" } } }, "then": { "properties": { "output": { "type": "object" }, "error": { "type": "null" } } } },
+        { "if": { "properties": { "state": { "const": "failed" } } }, "then": { "properties": { "error": { "type": "object" } } } }
+      ]
+    }
+  }
+}

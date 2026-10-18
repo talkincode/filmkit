@@ -632,6 +632,24 @@ scenes:
 - If the provider's response shape changes, `filmkit run` reports what actually
   came back — fix the path in the Profile (`http.output`) rather than guessing.
 
+## Remote GPU batch: ComfyUI on Colab (`colab-comfy`)
+
+`profiles/colab-comfy.yaml` (task `h3-ref2va`: reference image(s) + a prompt you write → a clip
+with audio) renders on a Google Colab GPU through the `colab-comfy` helper
+(`tools/colab-comfy/README.md`). A Colab session costs minutes of setup, so the work is
+two-phase and `filmkit run` alone never spends:
+
+1. Run `colab-comfy batch --estimate` in the project directory and report the CU estimate; after
+   the user confirms, `colab-comfy batch --yes` (add `--budget` for a bigger cap) renders every
+   pending node in **one** session, always stops it, then calls `filmkit run <id>` for each node
+   (free: it copies from `.colab-comfy/cache` and writes the lock).
+2. `filmkit run <id>` on a node that was not generated yet exits `2` (cache miss, nothing
+   spent); `COLAB_COMFY_YES=1 filmkit run <id>` is the explicit single-node spend.
+
+With `candidates: N` the batch reports `needs-pick`; review the clips, set `pick: k`, then
+`filmkit run <id>`. Never leave a Colab session open while waiting for the user. Run
+`colab-comfy doctor` / `colab-comfy reap` if `filmkit doctor` reports leftover sessions.
+
 ## Text cards and captions without ffmpeg's drawtext
 
 Two patterns, both just existing filmkit features:

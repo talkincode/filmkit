@@ -8,13 +8,14 @@ import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { DEFAULT_BUDGET_CU, DEFAULT_GPU } from "./gate.ts";
 import { runGuard } from "./guard.ts";
 import { jobFrames, normalizeJob, validateJob, variantKey } from "./job.ts";
+import { formatCacheList, formatPrune, listCache, pruneCache } from "./cache-tools.ts";
 import { doctor, formatDoctor } from "./doctor.ts";
 import { materialize } from "./materialize.ts";
 import { stateDir } from "./ledger.ts";
 import { formatReap, reap } from "./reap.ts";
 import { backoffFromEnv } from "./teardown.ts";
 import { loadTemplate } from "./workflow.ts";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export interface CliResult {
   exitCode: number;
@@ -34,6 +35,10 @@ usage:
   colab-comfy reap [--film F] [--dry-run] [--json]        stop OUR leaked sessions (fk-* recorded in .colab-comfy/active.json); never others
   colab-comfy guard --session NAME --parent-pid PID --deadline EPOCH --state DIR
                                                           internal: detached watchdog started by batch
+  colab-comfy cache ls [--film F] [--json]                list cached clips (node, candidate, seed, size, referenced-by)
+  colab-comfy cache prune --keep-referenced [--film F] [--dry-run] [--json]
+                                                          delete cached clips no run record in the lock names as winner
+  colab-comfy cache prune --yes [--film F] [--dry-run]    delete EVERY cached clip (each cost CU to make; refused without --yes)
   colab-comfy doctor [--json]                             { ready, checks[] }: colab on PATH, version, auth probe, leftover fk-* sessions, templates
   colab-comfy materialize <job flags> --out P --record R [--film F]
                                                           copy the cached clip to --out and write the run record (--record); used by the
@@ -74,6 +79,7 @@ const OPTIONS = {
   nodes: { type: "string" },
   estimate: { type: "boolean", default: false },
   yes: { type: "boolean", default: false },
+  "keep-referenced": { type: "boolean", default: false },
   budget: { type: "string" },
   session: { type: "string" },
   "max-wall": { type: "string" },
@@ -128,6 +134,9 @@ export async function main(argv: string[], envOverrides: Record<string, string |
         break;
       case "guard":
         out = await guardCommand(v, env);
+        break;
+      case "cache":
+        out = cacheCommand(v, parsed.positionals[1], cwd);
         break;
       case "doctor": {
         const report = await doctor(env);
@@ -234,6 +243,20 @@ async function materializeCommand(v: Values, env: Record<string, string | undefi
     text: `materialized ${report.node ?? "job"}: candidate ${report.winner.index} (seed ${report.winner.seed}) -> ${report.out}, record ${report.record}${report.spent ? ` (spent: session ${report.session})` : ""}`,
     stderr,
   };
+}
+
+function cacheCommand(v: Values, sub: string | undefined, cwd: string): Out {
+  const baseDir = dirname(resolve(cwd, v.film));
+  const lockPath = join(baseDir, "filmkit.lock.yaml");
+  if (sub === "ls") {
+    const entries = listCache(baseDir, lockPath);
+    return { json: { entries }, text: formatCacheList(entries) };
+  }
+  if (sub === "prune") {
+    const report = pruneCache({ baseDir, lockPath, keepReferenced: v["keep-referenced"], yes: v.yes, dryRun: v["dry-run"] });
+    return { json: report, text: formatPrune(report) };
+  }
+  throw new ColabComfyError(EXIT.invalidInput, [invalid(`cache needs a subcommand: ls | prune (got ${sub === undefined ? "none" : `"${sub}"`})`, "cache")]);
 }
 
 async function reapCommand(v: Values, env: Record<string, string | undefined>, cwd: string): Promise<Out> {
