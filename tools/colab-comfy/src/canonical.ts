@@ -11,6 +11,14 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortKeys(value));
 }
 
+/**
+ * Same key order as canonicalJson, but with fixed 2-space indentation and a trailing newline: the byte format of
+ * run records (src/record.ts). Deterministic by construction: no timestamps, no insertion-order dependence.
+ */
+export function canonicalJsonPretty(value: unknown): string {
+  return JSON.stringify(sortKeys(value), null, 2) + "\n";
+}
+
 function sortKeys(value: unknown): unknown {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
   if (typeof value === "number") {

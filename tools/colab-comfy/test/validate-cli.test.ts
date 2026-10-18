@@ -97,8 +97,8 @@ describe("colab-comfy validate", () => {
     expect((await main(["frobnicate"], {}, p.dir)).exitCode).toBe(2);
   });
 
-  test("materialize is explicitly not implemented yet (exit 1), never silently ok (batch is real since M5: lifecycle.test.ts)", async () => {
-    expect((await main(["materialize"], {}, p.dir)).exitCode).toBe(1);
+  test("materialize with no job flags is invalid input (exit 2), never silently ok", async () => {
+    expect((await main(["materialize"], {}, p.dir)).exitCode).toBe(2);
   });
 
   test("the real executable: exit code and stdout through a subprocess", async () => {

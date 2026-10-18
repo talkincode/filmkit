@@ -8,6 +8,8 @@ import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { DEFAULT_BUDGET_CU, DEFAULT_GPU } from "./gate.ts";
 import { runGuard } from "./guard.ts";
 import { jobFrames, normalizeJob, validateJob, variantKey } from "./job.ts";
+import { doctor, formatDoctor } from "./doctor.ts";
+import { materialize } from "./materialize.ts";
 import { stateDir } from "./ledger.ts";
 import { formatReap, reap } from "./reap.ts";
 import { backoffFromEnv } from "./teardown.ts";
@@ -32,14 +34,19 @@ usage:
   colab-comfy reap [--film F] [--dry-run] [--json]        stop OUR leaked sessions (fk-* recorded in .colab-comfy/active.json); never others
   colab-comfy guard --session NAME --parent-pid PID --deadline EPOCH --state DIR
                                                           internal: detached watchdog started by batch
-  colab-comfy materialize <job flags> --out P --record R  (not implemented yet)
+  colab-comfy doctor [--json]                             { ready, checks[] }: colab on PATH, version, auth probe, leftover fk-* sessions, templates
+  colab-comfy materialize <job flags> --out P --record R [--film F]
+                                                          copy the cached clip to --out and write the run record (--record); used by the
+                                                          Profile's invocation (\`filmkit run\`). Cache miss: exit 5, or with COLAB_COMFY_YES=1 a
+                                                          batch of one under the same budget gate. candidates > 1 without --pick: exit 2.
 
 job flags: --node= --template= --prompt= --ref= [--ref2=] [--ref3=] --seed= --duration= --resolution=
            [--sparsity=] [--candidates=] [--pick=]
 
 common: --json  machine-readable output; errors as {"errors":[{code,message,field?,hint?}]} on stderr
 
-env:  COLAB_COMFY_BUDGET_CU   hard cap in CU (default ${DEFAULT_BUDGET_CU})
+env:  COLAB_COMFY_YES=1         authorize a spend from \`filmkit run\` (cache miss; batch of one)
+      COLAB_COMFY_BUDGET_CU   hard cap in CU (default ${DEFAULT_BUDGET_CU})
       COLAB_COMFY_AUTH        passed as \`colab --auth <v>\` (default adc); COLAB_CLI_CONFIG as \`--config\`
       COLAB_COMFY_POLL_SEC    seconds between polls (default 20); COLAB_COMFY_BACKOFF_MS stop/verify backoff
       COLAB_COMFY_QUIET=1     no progress lines on stderr
@@ -122,8 +129,14 @@ export async function main(argv: string[], envOverrides: Record<string, string |
       case "guard":
         out = await guardCommand(v, env);
         break;
+      case "doctor": {
+        const report = await doctor(env);
+        out = { json: report, text: formatDoctor(report), exitCode: report.ready ? EXIT.ok : EXIT.missingDependency };
+        break;
+      }
       case "materialize":
-        throw notImplemented("materialize");
+        out = await materializeCommand(v, env, cwd);
+        break;
       default:
         return { exitCode: EXIT.invalidInput, stdout: "", stderr: `unknown command "${command}"\n\n${HELP}` };
     }
@@ -140,10 +153,6 @@ export async function main(argv: string[], envOverrides: Record<string, string |
 
 function formatDetail(d: Detail): string {
   return `error: ${d.field ? `${d.field}: ` : ""}${d.message}${d.hint ? `\n  hint: ${d.hint}` : ""}`;
-}
-
-function notImplemented(what: string): ColabComfyError {
-  return new ColabComfyError(EXIT.io, [{ code: "not-implemented", message: `${what} is not implemented in this build yet`, hint: "validate, batch, reap and guard exist so far" }]);
 }
 
 function validateCommand(v: Values, cwd: string): Out {
@@ -215,6 +224,16 @@ async function batchCommand(v: Values, env: Record<string, string | undefined>, 
     log: progressLogger(env),
   });
   return { json: report, text: formatBatch(report), exitCode, stderr };
+}
+
+async function materializeCommand(v: Values, env: Record<string, string | undefined>, cwd: string): Promise<Out> {
+  const budget = parseNumberFlag(v.budget ?? env.COLAB_COMFY_BUDGET_CU, "budget", DEFAULT_BUDGET_CU)!;
+  const { report, stderr } = await materialize({ flags: { ...v }, out: v.out, record: v.record, film: v.film, cwd, budgetCU: budget, env, log: progressLogger(env) });
+  return {
+    json: report,
+    text: `materialized ${report.node ?? "job"}: candidate ${report.winner.index} (seed ${report.winner.seed}) -> ${report.out}, record ${report.record}${report.spent ? ` (spent: session ${report.session})` : ""}`,
+    stderr,
+  };
 }
 
 async function reapCommand(v: Values, env: Record<string, string | undefined>, cwd: string): Promise<Out> {

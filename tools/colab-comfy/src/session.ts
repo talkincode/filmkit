@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SelectedNode } from "./batch.ts";
 import { buildJobsDoc, VM_DIR, writeBundle, type JobsDoc } from "./bundle.ts";
-import { cachePaths, writeFileAtomic } from "./cache.ts";
+import { attachCost, cachePaths, writeFileAtomic } from "./cache.ts";
 import { sha256File } from "./canonical.ts";
 import { Colab, isReleasing, type CallLogEntry, type ColabOptions } from "./colab.ts";
 import { ColabComfyError, EXIT } from "./errors.ts";
@@ -545,6 +545,29 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
       });
     } catch (err) {
       warnings.push(`could not write the ledger: ${(err as Error).message}`);
+    }
+
+    // Cost facts only exist now (usage after the stop), so they are attached to the clips' meta afterwards. Run
+    // records read them from there (src/record.ts) and stay byte-stable because nothing is recomputed later.
+    // Attribution (PLAN §5.6): session CU x this job's gen seconds / all gen seconds of the session.
+    const totalGenSec = list.reduce((s, j) => s + (j.wallSec ?? 0), 0);
+    for (const j of list) {
+      if (j.state !== "downloaded") continue;
+      const share = totalGenSec > 0 ? (j.wallSec ?? 0) / totalGenSec : 1 / list.length;
+      try {
+        attachCost(o.baseDir, j.key, {
+          session: o.name,
+          estimateCU: o.estimateCU,
+          usageBeforeCU: usageBefore.balance,
+          usageAfterCU,
+          sessionActualCU: actualCU,
+          attributedCU: actualCU === null ? null : Math.round(actualCU * share * 10000) / 10000,
+          stopped: stop.stopped,
+          sessionsVerifiedEmpty: stop.verified,
+        });
+      } catch (err) {
+        warnings.push(`could not attach cost to the cache entry of ${j.node}#${j.candidate}: ${(err as Error).message}`);
+      }
     }
 
     if (leak) {

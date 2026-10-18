@@ -1,11 +1,13 @@
 // `colab-comfy batch` (PLAN §5.4): plan -> jobs -> cache lookup -> estimate -> gate -> [lock -> session
 // lifecycle -> ledger] -> materialize. `batchEstimate` is the free, offline half and never calls `colab`;
-// `runBatch` adds steps 5-7 and 9 (the session lives in session.ts). Step 8 (materialize) is the M6 hook.
+// `runBatch` adds steps 5-7 and 9 (the session lives in session.ts). Step 8 runs `filmkit run <id>` per node, which
+// calls `colab-comfy materialize` (src/materialize.ts) over the freshly filled cache: free, no `colab` call.
+// `generate()` (steps 5-7 for an already gated job list) is shared with materialize's COLAB_COMFY_YES path.
 
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { cacheHit, jobCacheKey } from "./cache.ts";
+import { cacheHit, cachePaths, jobCacheKey } from "./cache.ts";
 import { sha256Hex } from "./canonical.ts";
 import { ColabComfyError, EXIT, type Detail } from "./errors.ts";
 import { estimateCU, loadEstimates, type Breakdown, type EstimateJob } from "./estimate.ts";
@@ -240,9 +242,24 @@ export interface BatchOptions extends EstimateOptions {
   log?: (line: string) => void;
 }
 
+export interface MaterializeNode {
+  id: string;
+  /**
+   * materialized     `filmkit run` succeeded (produce + record written, lock updated)
+   * needs-pick       candidates > 1 and no `pick`: review the clips, set `pick`, run `filmkit run <id>`
+   * not-generated    a needed clip is not in the cache (its job failed or was not run); nothing was attempted
+   * failed           `filmkit run` exited non-zero
+   */
+  status: "materialized" | "needs-pick" | "not-generated" | "failed";
+  exitCode?: number;
+  message?: string;
+  candidates?: { index: number; seed: number; cached: boolean; cachePath: string }[];
+}
+
 export interface MaterializeSummary {
-  status: "skipped" | "not-implemented";
+  status: "skipped" | "ok" | "failed";
   reason: string;
+  nodes: MaterializeNode[];
 }
 
 export interface BatchReport extends EstimateReport {
@@ -250,18 +267,80 @@ export interface BatchReport extends EstimateReport {
   materialize: MaterializeSummary;
 }
 
-/**
- * TODO(M6): step 8. For each selected node run `$FILMKIT run <id> --film F --json` (cache hits, 0 CU) and report
- * `needs-pick` for nodes with candidates > 1 and no `pick` (listing candidate cache paths) instead of running them.
- * Per node, so a partial session can still materialize the nodes whose clips all arrived.
- * Until M6 provides `colab-comfy materialize`, a default batch stops after the cache is filled.
- */
-function materializeHook(opts: BatchOptions): MaterializeSummary {
-  if (opts.noMaterialize) return { status: "skipped", reason: "--no-materialize" };
-  return { status: "not-implemented", reason: "materialize lands in M6; clips are in .colab-comfy/cache, run `filmkit run <id>` after M6" };
+export interface FilmkitResult {
+  code: number;
+  stdout: string;
+  stderr: string;
 }
 
-function filmMeta(path: string): { name: string; sha256: string } {
+/** Run `<filmkit> <args…>` (command string split on whitespace, no shell). */
+export async function runFilmkit(filmkitCmd: string, args: string[], cwd: string, env: Record<string, string | undefined>): Promise<FilmkitResult> {
+  const argv = [...filmkitCmd.trim().split(/\s+/), ...args];
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (v !== undefined) clean[k] = v;
+  let proc;
+  try {
+    proc = Bun.spawn(argv, { cwd, env: clean, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  } catch (err) {
+    throw new ColabComfyError(EXIT.missingDependency, [{ code: "missing-dependency", message: `cannot run "${argv[0]}": ${(err as Error).message}`, hint: "install filmkit or set COLAB_COMFY_FILMKIT" }]);
+  }
+  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  return { code, stdout, stderr };
+}
+
+/** First error message of a `--json` failure (`{"errors":[{message,...}]}`), else the stderr tail. */
+function failureMessage(r: FilmkitResult): string {
+  try {
+    const e = (JSON.parse(r.stderr) as { errors?: { message?: string; hint?: string }[] }).errors?.[0];
+    if (e?.message) return e.hint ? `${e.message} (${e.hint})` : e.message;
+  } catch {
+    // not JSON: fall through
+  }
+  return r.stderr.trim().split("\n").slice(-6).join("\n") || `exited ${r.code}`;
+}
+
+/**
+ * Batch step 8. Per node, so a partial session still materializes the nodes whose clips all arrived.
+ * `COLAB_COMFY_YES` is removed from the children's environment: the batch's own gate already decided about
+ * spending, and a materialize that finds a miss here must refuse (exit 5) rather than open a second session.
+ */
+async function materializeNodes(opts: BatchOptions, baseDir: string, selected: SelectedNode[]): Promise<MaterializeSummary> {
+  if (opts.noMaterialize) return { status: "skipped", reason: "--no-materialize", nodes: [] };
+  const env = { ...(opts.env ?? process.env), COLAB_COMFY_YES: undefined };
+  const nodes: MaterializeNode[] = [];
+  for (const n of selected) {
+    // A clip may have landed after plan time (this very batch), so re-check the cache, not `Candidate.cached`.
+    const cands = n.candidates.map((c) => ({ index: c.index, seed: c.seed, cached: cacheHit(baseDir, c.key), cachePath: relative(baseDir, cachePaths(baseDir, c.key).clip) }));
+    if (n.job.candidates > 1 && n.job.pick === undefined) {
+      nodes.push({ id: n.id, status: "needs-pick", candidates: cands, message: `${n.job.candidates} candidates rendered; review the clips, set params.pick, then run \`filmkit run ${n.id}\` (0 CU)` });
+      continue;
+    }
+    if (cands.some((c) => !c.cached)) {
+      nodes.push({ id: n.id, status: "not-generated", candidates: cands, message: "a needed clip is not in the cache (its generation failed or did not run)" });
+      continue;
+    }
+    opts.log?.(`filmkit run ${n.id}`);
+    const r = await runFilmkit(opts.filmkit, ["run", n.id, "--film", opts.film, "--json"], opts.cwd, env);
+    if (r.code === 0) nodes.push({ id: n.id, status: "materialized" });
+    else nodes.push({ id: n.id, status: "failed", exitCode: r.code, message: failureMessage(r) });
+  }
+  const failed = nodes.filter((x) => x.status === "failed" || x.status === "not-generated");
+  return {
+    status: failed.length ? "failed" : "ok",
+    reason: failed.length ? `${failed.map((x) => x.id).join(", ")}: not materialized` : nodes.length ? "every ready node materialized or needs a pick" : "no pending nodes",
+    nodes,
+  };
+}
+
+/** Exit code contributed by step 8: a failing `filmkit run` keeps its class (1/2/3), anything else is a tool failure. */
+function materializeExit(m: MaterializeSummary): number {
+  const bad = m.nodes.find((x) => x.status === "failed");
+  if (bad) return ([EXIT.io, EXIT.invalidInput, EXIT.missingDependency] as number[]).includes(bad.exitCode ?? -1) ? bad.exitCode! : EXIT.toolFailure;
+  return m.nodes.some((x) => x.status === "not-generated") ? EXIT.toolFailure : EXIT.ok;
+}
+
+/** Name + content hash of the film file; the name is cosmetic (session name), so only a read error is fatal. */
+export function filmMeta(path: string): { name: string; sha256: string } {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
@@ -278,68 +357,123 @@ function filmMeta(path: string): { name: string; sha256: string } {
   return { name: name || "film", sha256: sha256Hex(text) };
 }
 
-/** Batch steps 1-7 and 9. Exit: 0 ok, 5 needs confirmation, otherwise the session's exit code (4 / 3 / 128+signal). */
-export async function runBatch(opts: BatchOptions): Promise<{ report: BatchReport; exitCode: number; stderr: string }> {
-  const env = opts.env ?? process.env;
-  const p = await prepare(opts, "batch");
-  const base = { ...p.report, mode: "batch" as const };
-  if (p.misses.length === 0) {
-    // Step 3: nothing to generate -> no session, no colab call, 0 CU.
-    const report: BatchReport = { ...base, ok: true, session: null, materialize: materializeHook(opts) };
-    return { report, exitCode: EXIT.ok, stderr: "" };
-  }
-  if (p.gate.decision !== "proceed") {
-    const report: BatchReport = { ...base, ok: false, session: null, materialize: { status: "skipped", reason: "needs confirmation" } };
-    return { report, exitCode: EXIT.needsConfirmation, stderr: "" };
-  }
+export interface GenerateOptions {
+  baseDir: string;
+  /** Film path as the user gave it (ledger) and its metadata. */
+  film: string;
+  filmName: string;
+  filmSha256?: string;
+  session?: string;
+  gpu: string;
+  budgetCU: number;
+  estimate: Breakdown;
+  maxWallSec?: number;
+  /** Nodes with at least one uncached candidate; already past the gate. */
+  nodes: SelectedNode[];
+  env: Record<string, string | undefined>;
+  log?: (line: string) => void;
+}
 
-  const filmPath = resolve(opts.cwd, opts.film);
-  const meta = filmMeta(filmPath);
-  const name = opts.session ?? sessionName(meta.name);
+/** Batch steps 5-7: validate the session name, take the project lock, run the session (it writes the ledger). */
+export async function generate(o: GenerateOptions): Promise<SessionResult> {
+  const name = o.session ?? sessionName(o.filmName);
   if (!name.startsWith("fk-") || !/^[a-z0-9][a-z0-9-]*$/.test(name) || name.length > 40) {
     throw new ColabComfyError(EXIT.invalidInput, [
       { code: "invalid-input", message: `--session "${name}" must match fk-[a-z0-9-]*, at most 40 characters`, field: "session", hint: "reap only ever touches sessions whose name starts with fk-" },
     ]);
   }
-
-  const release = acquireBatchLock(stateDir(p.baseDir)); // step 5
-  let session: SessionResult;
+  const release = acquireBatchLock(stateDir(o.baseDir)); // step 5
   try {
-    session = await runSession({
-      baseDir: p.baseDir,
+    return await runSession({
+      baseDir: o.baseDir,
       name,
-      film: opts.film,
-      filmSha256: meta.sha256,
-      gpu: opts.gpu,
-      budgetCU: opts.budgetCU,
-      estimateCU: p.estimate.cu,
-      rateCuPerHour: p.estimate.rateCuPerHour,
-      maxWallSec: opts.maxWallSec,
-      nodes: p.selected,
-      env,
-      log: opts.log,
-    }); // steps 6-7 (ledger is written by the session)
+      film: o.film,
+      filmSha256: o.filmSha256,
+      gpu: o.gpu,
+      budgetCU: o.budgetCU,
+      estimateCU: o.estimate.cu,
+      rateCuPerHour: o.estimate.rateCuPerHour,
+      maxWallSec: o.maxWallSec,
+      nodes: o.nodes,
+      env: o.env,
+      log: o.log,
+    }); // steps 6-7
   } finally {
     release();
   }
+}
 
-  const stderr: string[] = [];
-  if (session.leak) stderr.push(`SESSION_LEAK: ${session.session} may still be running; run \`colab-comfy reap\``);
-  if (session.error) stderr.push(`error: ${session.error}`);
-  for (const j of session.jobs) if (j.state !== "downloaded") stderr.push(`job ${j.node}#${j.candidate}: ${j.state}${j.error ? ` (${j.error})` : ""}`);
-  for (const w of session.warnings) stderr.push(`warning: ${w}`);
+/** Human-readable problems of a finished session (stderr lines); empty for a clean one. */
+export function sessionProblems(session: SessionResult): string[] {
+  const lines: string[] = [];
+  if (session.leak) lines.push(`SESSION_LEAK: ${session.session} may still be running; run \`colab-comfy reap\``);
+  if (session.error) lines.push(`error: ${session.error}`);
+  for (const j of session.jobs) if (j.state !== "downloaded") lines.push(`job ${j.node}#${j.candidate}: ${j.state}${j.error ? ` (${j.error})` : ""}`);
+  for (const w of session.warnings) lines.push(`warning: ${w}`);
+  return lines;
+}
 
-  // Step 8 only runs for a session that generated everything it was asked to and was stopped cleanly.
+/**
+ * Batch steps 1-9. Exit: 0 ok, 5 needs confirmation, otherwise the session's exit code (4 / 3 / 128+signal), or
+ * the class of the first failing `filmkit run`.
+ */
+export async function runBatch(opts: BatchOptions): Promise<{ report: BatchReport; exitCode: number; stderr: string }> {
+  const env = opts.env ?? process.env;
+  const p = await prepare(opts, "batch");
+  const base = { ...p.report, mode: "batch" as const };
+  if (p.misses.length === 0) {
+    // Step 3: nothing to generate -> no session, no colab call, 0 CU; straight to step 8.
+    const materialize = await materializeNodes(opts, p.baseDir, p.selected);
+    const exitCode = materializeExit(materialize);
+    return { report: { ...base, ok: exitCode === EXIT.ok, session: null, materialize }, exitCode, stderr: "" };
+  }
+  if (p.gate.decision !== "proceed") {
+    const report: BatchReport = { ...base, ok: false, session: null, materialize: { status: "skipped", reason: "needs confirmation", nodes: [] } };
+    return { report, exitCode: EXIT.needsConfirmation, stderr: "" };
+  }
+
+  const meta = filmMeta(resolve(opts.cwd, opts.film));
+  const session = await generate({
+    baseDir: p.baseDir,
+    film: opts.film,
+    filmName: meta.name,
+    filmSha256: meta.sha256,
+    session: opts.session,
+    gpu: opts.gpu,
+    budgetCU: opts.budgetCU,
+    estimate: p.estimate,
+    maxWallSec: opts.maxWallSec,
+    nodes: p.selected,
+    env,
+    log: opts.log,
+  });
+  const stderr = sessionProblems(session);
+
+  // Step 8 also runs after a partial/failed session (clips that did arrive are cached and cost nothing to
+  // materialize). Not after a signal (exit promptly) and not after a leak (nothing else should happen).
   const materialize: MaterializeSummary =
-    session.outcome === "ok" && !session.leak ? materializeHook(opts) : { status: "skipped", reason: `session outcome ${session.outcome}` };
-  const report: BatchReport = { ...base, ok: session.exitCode === EXIT.ok, session, materialize };
-  return { report, exitCode: session.exitCode, stderr: stderr.length ? stderr.join("\n") + "\n" : "" };
+    session.leak || session.outcome === "interrupted"
+      ? { status: "skipped", reason: `session ${session.leak ? "leaked" : "interrupted"}`, nodes: [] }
+      : await materializeNodes(opts, p.baseDir, p.selected);
+  for (const n of materialize.nodes) if (n.status === "failed") stderr.push(`filmkit run ${n.id}: ${n.message ?? "failed"}`);
+  const exitCode = session.exitCode !== EXIT.ok ? session.exitCode : materializeExit(materialize);
+  const report: BatchReport = { ...base, ok: exitCode === EXIT.ok, session, materialize };
+  return { report, exitCode, stderr: stderr.length ? stderr.join("\n") + "\n" : "" };
+}
+
+function formatMaterialize(m: MaterializeSummary): string[] {
+  const lines = [`materialize: ${m.status} (${m.reason})`];
+  for (const n of m.nodes) {
+    lines.push(`  ${n.id}: ${n.status}${n.message ? ` - ${n.message}` : ""}`);
+    if (n.status === "needs-pick") for (const c of n.candidates ?? []) lines.push(`    candidate ${c.index} seed ${c.seed}: ${c.cachePath}${c.cached ? "" : " (missing)"}`);
+  }
+  return lines;
 }
 
 export function formatBatch(r: BatchReport): string {
   if (!r.session) {
     if (r.gate.decision !== "proceed") return formatEstimate(r);
-    return formatEstimate(r) + `\nmaterialize: ${r.materialize.status} (${r.materialize.reason})`;
+    return [formatEstimate(r), ...formatMaterialize(r.materialize)].join("\n");
   }
   const s = r.session;
   const lines = [
@@ -347,7 +481,7 @@ export function formatBatch(r: BatchReport): string {
     ...s.jobs.map((j) => `  ${j.node}#${j.candidate}: ${j.state}${j.cachePath ? ` -> ${j.cachePath}` : ""}${j.error ? ` (${j.error})` : ""}`),
     `usage: ${s.usageBeforeCU.toFixed(2)} -> ${s.usageAfterCU === null ? "?" : s.usageAfterCU.toFixed(2)} CU (actual ${s.actualCU === null ? "?" : s.actualCU.toFixed(2)}, estimate ${r.estimate.cu.toFixed(2)}, budget ${r.budgetCU.toFixed(2)})`,
     `stop verified: ${s.stop.verified ? "yes" : "NO (SESSION_LEAK)"}`,
-    `materialize: ${r.materialize.status} (${r.materialize.reason})`,
+    ...formatMaterialize(r.materialize),
   ];
   return lines.join("\n");
 }

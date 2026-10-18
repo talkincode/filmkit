@@ -1,0 +1,524 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "colab-comfy/run-record@1",
+  "title": "colab-comfy run record (produces.file of a colab-comfy node)",
+  "description": "Deterministic: every value comes from node params, the template and the clip cache meta. Same inputs -> same bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "node",
+    "template",
+    "params",
+    "winner",
+    "candidates",
+    "models",
+    "runtime",
+    "cost",
+    "stop"
+  ],
+  "properties": {
+    "schema": {
+      "const": "colab-comfy/run-record@1"
+    },
+    "node": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "variant",
+        "fileSha256",
+        "bindingsSha256"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "variant": {
+          "enum": [
+            "dense",
+            "vsa"
+          ]
+        },
+        "fileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bindingsSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt",
+        "seed",
+        "duration",
+        "frames",
+        "fps",
+        "width",
+        "height",
+        "sparsity",
+        "candidates",
+        "pick",
+        "refs"
+      ],
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration": {
+          "type": "number"
+        },
+        "frames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sparsity": {
+          "type": "number"
+        },
+        "candidates": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "pick": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "winner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "seed",
+        "cacheKey",
+        "workflowSha256",
+        "video",
+        "selectedBy"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cacheKey": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "workflowSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "bytes"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "selectedBy": {
+          "enum": [
+            "single",
+            "params.pick"
+          ]
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "seed",
+          "cacheKey",
+          "workflowSha256",
+          "video",
+          "cachePath",
+          "session",
+          "wallSec",
+          "peakVramMiB"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheKey": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "workflowSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "video": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sha256",
+              "bytes"
+            ],
+            "properties": {
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "cachePath": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "wallSec": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "peakVramMiB": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "manifestSha256",
+        "comfyui",
+        "customNodes",
+        "weights",
+        "python",
+        "torch",
+        "cuda",
+        "comfyKitchen"
+      ],
+      "properties": {
+        "manifest": {
+          "type": "string"
+        },
+        "manifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "comfyui": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repo",
+            "commit"
+          ],
+          "properties": {
+            "repo": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "commit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "customNodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repo",
+              "commit"
+            ],
+            "properties": {
+              "repo": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "commit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "weights": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repo",
+              "file",
+              "revision",
+              "sha256",
+              "bytes"
+            ],
+            "properties": {
+              "repo": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "file": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revision": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bytes": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "python": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "torch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cuda": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "comfyKitchen": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "gpu"
+      ],
+      "properties": {
+        "provider": {
+          "const": "colab"
+        },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "driver",
+            "memoryMiB"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "driver": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "memoryMiB": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session",
+        "estimateCU",
+        "usageBeforeCU",
+        "usageAfterCU",
+        "sessionActualCU",
+        "attributedCU",
+        "attribution"
+      ],
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "estimateCU": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "usageBeforeCU": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "usageAfterCU": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sessionActualCU": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "attributedCU": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "attribution": {
+          "type": "string"
+        }
+      }
+    },
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stopped",
+        "sessionsVerifiedEmpty"
+      ],
+      "properties": {
+        "stopped": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "sessionsVerifiedEmpty": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

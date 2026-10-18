@@ -315,6 +315,10 @@ d("lifecycle (fake colab + real VM scripts + mock ComfyUI)", () => {
       expect(meta.session).toBe(s.session);
       expect(existsSync(`${paths.clip}.part`)).toBe(false);
     }
+    // cost facts are attached to every clip once the session is closed (run records are built from them)
+    const costs = s.jobs.map((j) => JSON.parse(readFileSync(cachePaths(h.dir, j.key).meta, "utf8")).cost);
+    for (const c of costs) expect(c).toMatchObject({ session: s.session, usageBeforeCU: 100, sessionActualCU: s.actualCU, stopped: true, sessionsVerifiedEmpty: true });
+    expect(costs.reduce((sum, c) => sum + c.attributedCU, 0)).toBeCloseTo(s.actualCU!, 2); // attribution splits the session CU
 
     // ledger + session file
     const led = ledger(h);
@@ -334,8 +338,10 @@ d("lifecycle (fake colab + real VM scripts + mock ComfyUI)", () => {
     expect(active(h)).toBeNull(); // CLOSE removed active.json
     expect(await h.sessions()).toEqual([]);
     expect(existsSync(join(stateDir(h.dir), "batch.lock"))).toBe(false);
-    // default materialize is the M6 hook: reported, nothing ran
-    expect(rep.materialize.status).toBe("not-implemented");
+    // step 8: `filmkit run <id>` per node (stand-in filmkit), without the spend authorization in its environment
+    expect(rep.materialize.status).toBe("ok");
+    expect(rep.materialize.nodes.map((n: { id: string; status: string }) => [n.id, n.status])).toEqual([["s1", "materialized"], ["s2", "materialized"], ["s3", "materialized"]]);
+    expect(readFileSync(join(h.dir, "filmkit-run.log"), "utf8").trim().split("\n")).toEqual(["s1 yes=", "s2 yes=", "s3 yes="]);
   }, 90_000);
 
   test("L15 re-run after L1: nothing to generate, no colab call at all, 0 CU", async () => {
@@ -347,7 +353,7 @@ d("lifecycle (fake colab + real VM scripts + mock ComfyUI)", () => {
     expect(r.json.jobsToGenerate).toBe(0);
     expect(r.json.jobsCached).toBe(3);
     expect(r.json.session).toBeNull();
-    expect(r.json.materialize).toEqual({ status: "skipped", reason: "--no-materialize" });
+    expect(r.json.materialize).toEqual({ status: "skipped", reason: "--no-materialize", nodes: [] });
     expect(readCalls(h.state)).toHaveLength(before); // not even `version`
     expect(ledger(h)).toHaveLength(1);
     expect(await h.sessions()).toEqual([]);
