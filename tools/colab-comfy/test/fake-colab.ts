@@ -140,6 +140,26 @@ function release(m: Meta, by: NonNullable<Meta["releasedBy"]>, atMs = Date.now()
   m.releasedBy = by;
   addSpent(((atMs - m.createdAtMs) / 1000) * cuPerSec());
   saveMeta(m);
+  killVmProcesses(m.name);
+}
+
+/**
+ * A released VM takes its processes with it. Without this, the detached runner of a stopped session kept idling and
+ * its status writer rewrote status.json into the next session of the same name (session names have minute
+ * resolution), so a batch started in the same minute read the previous batch's `done` status (flaky E3).
+ */
+function killVmProcesses(name: string) {
+  try {
+    const pid = Number(readFileSync(join(sessDir(name), "content", "fk", "runner.pid"), "utf8").trim());
+    if (pid > 1) {
+      try {
+        process.kill(-pid, "SIGKILL"); // setsid'd runner: pid == process group id
+      } catch {}
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+  } catch {}
 }
 
 function allMetas(): Meta[] {
