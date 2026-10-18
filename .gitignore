@@ -3,3 +3,5 @@ node_modules/
 /dist/
 *.draft.*
 /.tmp/
+__pycache__/
+*.pyc
