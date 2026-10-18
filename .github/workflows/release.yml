@@ -91,7 +91,7 @@ jobs:
           bun install --frozen-lockfile
           tar czf "dist/filmkit-${VERSION}.tar.gz" \
             package.json bun.lock node_modules \
-            bin src profiles skills docs README.md CHANGELOG.md LICENSE
+            bin src profiles skills tools docs README.md CHANGELOG.md LICENSE
           (cd dist && sha256sum -- * > checksums.txt && cat checksums.txt)
 
       - name: Attest build provenance
