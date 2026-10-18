@@ -174,6 +174,31 @@ The helper's parsing and lifecycle rest on behaviour measured on a real session 
   constraints from source: `length` = 5 + 17k, width/height multiples of 32, refs 0-based `ref_image_0…`, output found at
   `history[pid].outputs[*].images[*]` with `metadata.kind == "video"`.
 
+## Real run (M8, 2026-10-18, Asia/Shanghai)
+
+`scripts/e2e-colab-comfy.sh <work> --refs /workspace/weila-ep03/h3/job --yes --budget 1.0` on the bot box (colab 0.7.4, ADC),
+EP03 test film (s1a dense 107 f, s3a VSA 0.75 141 f, s4a VSA 0.5 124 f; all 704×1280). Result: **pass**, exit 0.
+
+| Item | Value |
+|---|---|
+| Session | `fk-ep03-h3-test-202610180501`, L4 (driver 580.82.07, 23034 MiB), 13:01:21 → 13:22:15 CST |
+| Stack | Python 3.13.15, torch 2.11.0+cu130, CUDA 13.0, comfy-kitchen 0.2.38; ComfyUI `ce1e922d…`, node `323a0a5f…` (pins verified); 6 weights size-verified |
+| CU | estimate 0.75 → actual **0.51** (349.19 → 348.68; ratio 0.68, ≈1.46 CU/h effective) |
+| Phases | `new` 4 s; setup 183 s (pip 31 s, 48 GB HF download 140 s); ComfyUI start ≈ 24 s; gen 1013 s; teardown 4 s |
+| s1a dense 107 f | 318 s wall (incl. first TE/UNet/VAE load), sampler 4 × ~35 s/it, peak 22294 MiB |
+| s3a VSA 0.75 141 f | 354 s wall, sampler 4 × ~36 s/it (+~80 s model re-init with the gate), peak 22326 MiB |
+| s4a VSA 0.5 124 f | 340 s wall, sampler 4 × ~38 s/it (+~67 s re-init), peak 22278 MiB |
+| Clips | 704×1280, 24 fps, h264 + aac; 4.458 / 5.875 / 5.167 s (trimmed to the scene by `durationPolicy: exact`) |
+| Stop | helper: stop + `sessions` verified; independent `colab sessions` → none, `usage` → 0 active assignments |
+| Re-run | second `batch --estimate` → nothing to generate; `filmkit run s1a` → lock byte-identical, no session |
+
+Findings for recalibration (not applied yet; one data point):
+- Setup is much faster than the 480 s assumed (≈ 225 s from `new` to the first submit).
+- Each job re-initialises the model (~70–80 s) because the prompt/VSA patch changes, so "warm" generation at portrait
+  704×1280 is ~320–355 s per clip, and VSA gave **no** speed-up over dense at this shape on L4 (all ~35–38 s/it).
+- 3 of 41 `fk_poll.py` execs hit the 60 s host timeout during model loads; each was recovered by `restart-kernel` as
+  designed (A2) and the next poll succeeded. A burst of 3 in a row would abort the batch as `session-lost`.
+
 ## Machine-readable schemas
 
 `schema/run-record.schema.json` (the `produces.file` run record), `schema/jobs.schema.json` (host → VM `jobs.json`),
