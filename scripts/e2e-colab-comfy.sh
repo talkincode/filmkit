@@ -51,7 +51,8 @@ fi
 command -v bun >/dev/null || fail "bun not found"
 command -v ffprobe >/dev/null || fail "ffprobe not found"
 command -v colab >/dev/null || fail "colab CLI not found (see tools/colab-comfy/README.md)"
-COLAB=(colab --auth "$AUTH")
+# Host timeout on every direct colab call: the CLI can hang (M0 A2).
+COLAB=(timeout 120 colab --auth "$AUTH")
 
 mkdir -p "$WORK/profiles" "$WORK/refs" "$WORK/.bin"
 WORK="$(cd "$WORK" && pwd)"

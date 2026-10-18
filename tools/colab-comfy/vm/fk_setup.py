@@ -118,6 +118,15 @@ def _tail(path, n=1500):
         return ""
 
 
+def _hf_bin():
+    """The `hf` CLI that the pip step just installed. The runner is a detached child of the kernel, whose PATH
+    may not contain the interpreter's script dir: prefer the script next to sys.executable, then PATH."""
+    here = os.path.join(os.path.dirname(sys.executable), "hf")
+    if os.path.isfile(here) and os.access(here, os.X_OK):
+        return here
+    return shutil.which("hf") or "hf"
+
+
 def _git_pin(repo, commit, dest, run):
     if not os.path.isdir(os.path.join(dest, ".git")):
         run(["git", "clone", "-q", "--no-checkout", "--depth", "1", repo, dest])
@@ -231,11 +240,12 @@ def run_setup(root, manifest, manifest_sha, limits, comfy_dir, should_abort=lamb
             hf_env["HF_XET_HIGH_PERFORMANCE"] = "1"
             hf_env["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
             groups, expected = weight_plan(manifest, models)
+            hf_bin = _hf_bin()
             t = time.time()
             procs = []
             for (repo, rev, local_dir), files in groups.items():
                 os.makedirs(local_dir, exist_ok=True)
-                cmd = ["hf", "download", repo] + files + ["--revision", rev, "--local-dir", local_dir]
+                cmd = [hf_bin, "download", repo] + files + ["--revision", rev, "--local-dir", local_dir]
                 log.write(("+ " + " ".join(cmd) + "\n").encode())
                 log.flush()
                 procs.append((cmd, subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
