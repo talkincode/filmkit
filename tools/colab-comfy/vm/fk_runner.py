@@ -314,6 +314,15 @@ class Runner:
             self.status.doc["watchdog"] = {"reason": reason, "at": time.time()}  # terminal phases stay as they were
             self.status.save()
         self.comfy.kill()
+        # M3 review: `runtime.unassign()` was verified only from kernel code, not from this detached process.
+        # So ALSO leave a request file: the next fk_poll.py (a real kernel cell) sees it and unassigns.
+        try:
+            tmp = os.path.join(ROOT, "release.request.tmp")
+            with open(tmp, "w") as f:
+                json.dump({"reason": reason, "at": time.time()}, f)
+            os.replace(tmp, os.path.join(ROOT, "release.request"))
+        except OSError as e:
+            log("could not write release.request: %s" % e)
         self.self_release(reason)
         os._exit(0)
 

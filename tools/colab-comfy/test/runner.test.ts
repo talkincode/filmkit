@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeSampleMp4, startMockComfy, type MockComfy, type MockMode } from "./mock-comfy.ts";
+import { FAKE_PYLIB } from "./fake-colab.ts";
 import { fakePng } from "./support.ts";
 
 const VM = join(import.meta.dir, "..", "vm");
@@ -39,7 +40,7 @@ interface Harness {
   env: Record<string, string>;
   keys: string[];
   inputFile: string;
-  run(script: string): Promise<{ lines: string[]; status: any; stdout: string }>;
+  run(script: string, extraEnv?: Record<string, string>): Promise<{ lines: string[]; status: any; stdout: string; stderr: string }>;
   status(): any;
   waitFor(pred: (s: any) => boolean, ms?: number): Promise<any>;
 }
@@ -123,12 +124,12 @@ async function harness(o: Opts = {}): Promise<Harness> {
   };
   const h: Harness = {
     base, root, comfyOut, comfyIn, marker, mock, env, keys, inputFile,
-    async run(script) {
-      const p = Bun.spawn(["python3", join(VM, script)], { env, stdout: "pipe", stderr: "pipe" });
+    async run(script, extraEnv) {
+      const p = Bun.spawn(["python3", join(VM, script)], { env: { ...env, ...extraEnv }, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-      if (stderr.trim()) console.warn(`${script} stderr:`, stderr);
+      if (stderr.trim() && !extraEnv) console.warn(`${script} stderr:`, stderr);
       const lines = stdout.split("\n").filter((l) => l.startsWith("FKSTATUS "));
-      return { lines, status: lines[0] ? JSON.parse(lines[0].slice("FKSTATUS ".length)) : null, stdout };
+      return { lines, status: lines[0] ? JSON.parse(lines[0].slice("FKSTATUS ".length)) : null, stdout, stderr };
     },
     status: () => JSON.parse(readFileSync(join(root, "status.json"), "utf8")),
     async waitFor(pred, ms = 15000) {
@@ -259,6 +260,8 @@ d("runner (colab-comfy/v1)", () => {
     expect(s.phase).toBe("aborted");
     expect(s.error).toContain("watchdog");
     expect(s.jobs[0]).toMatchObject({ state: "failed", error: { kind: "aborted" } });
+    // M3 review: the watchdog also leaves a request for the kernel-side release (fk_poll.py)
+    expect(JSON.parse(readFileSync(join(h.root, "release.request"), "utf8")).reason).toBe("heartbeat-missing");
     // the runner process ended itself after releasing
     const pid = Number(readFileSync(join(h.root, "runner.pid"), "utf8"));
     await sleep(300);
@@ -271,6 +274,47 @@ d("runner (colab-comfy/v1)", () => {
     const end = Date.now() + 10000;
     while (!existsSync(h.marker) && Date.now() < end) await sleep(100);
     expect(JSON.parse(readFileSync(h.marker, "utf8")).reason).toBe("hard-deadline");
+  }, 20000);
+
+  test("self-release fallback: fk_poll reports releasing:true, THEN calls google.colab.runtime.unassign()", async () => {
+    const h = await harness({ jobs: 1, mode: "hang", limits: { jobTimeoutSec: 60, hardDeadlineEpoch: Math.floor(Date.now() / 1000) - 5 } });
+    const stub = join(h.base, "kernel-unassigned.txt");
+    const kernelEnv = { PYTHONPATH: FAKE_PYLIB, FAKE_COLAB_RELEASE_FILE: stub };
+    await h.run("fk_kick.py");
+    const end = Date.now() + 10000;
+    while (!existsSync(join(h.root, "release.request")) && Date.now() < end) await sleep(100);
+    expect(existsSync(h.marker)).toBe(true); // the runner's own attempt is kept
+    expect(existsSync(stub)).toBe(false); // ... and the kernel-side one has not happened yet
+
+    const poll = await h.run("fk_poll.py", kernelEnv);
+    expect(poll.lines.length).toBe(1);
+    expect(poll.status).toMatchObject({ releasing: true, phase: "aborted", runnerAlive: false });
+    expect(poll.status.watchdog.reason).toBe("hard-deadline");
+    expect(poll.stderr).toBe("");
+    expect(existsSync(stub)).toBe(true);
+    expect(poll.stdout.startsWith("FKSTATUS ")).toBe(true); // the line is printed before unassign() is attempted
+  }, 20000);
+
+  test("fk_poll without release.request never unassigns and does not set releasing", async () => {
+    const h = await harness({ jobs: 1 });
+    const stub = join(h.base, "kernel-unassigned.txt");
+    await h.run("fk_kick.py");
+    await h.waitFor(terminal);
+    const poll = await h.run("fk_poll.py", { PYTHONPATH: FAKE_PYLIB, FAKE_COLAB_RELEASE_FILE: stub });
+    expect(poll.status.phase).toBe("done");
+    expect("releasing" in poll.status).toBe(false);
+    expect(existsSync(stub)).toBe(false);
+  }, 20000);
+
+  test("fk_poll: if unassign() itself fails the FKSTATUS line still says releasing, error goes to stderr", async () => {
+    const h = await harness({ jobs: 1, mode: "hang", limits: { jobTimeoutSec: 60, hardDeadlineEpoch: Math.floor(Date.now() / 1000) - 5 } });
+    await h.run("fk_kick.py");
+    const end = Date.now() + 10000;
+    while (!existsSync(join(h.root, "release.request")) && Date.now() < end) await sleep(100);
+    // stub without FAKE_COLAB_RELEASE_FILE / FAKE_COLAB_SESSION_DIR raises RuntimeError
+    const poll = await h.run("fk_poll.py", { PYTHONPATH: FAKE_PYLIB, FAKE_COLAB_RELEASE_FILE: "", FAKE_COLAB_SESSION_DIR: "" });
+    expect(poll.status.releasing).toBe(true);
+    expect(poll.stderr).toContain("unassign failed");
   }, 20000);
 
   test("missing node class: phase failed with a clear error, nothing submitted", async () => {
