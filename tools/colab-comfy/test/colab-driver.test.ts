@@ -182,7 +182,7 @@ describe("driver: queries and lifecycle against the fake", () => {
     await Bun.sleep(300);
     const mid = await h.colab.usage();
     expect(mid.balance).toBeLessThan(100);
-    expect(mid.rate).toBe(7200);
+    expect(mid.rate).toBe(1.71); // `Usage rate` stays nominal; FAKE_COLAB_CU_PER_SEC only accelerates billing
     await h.colab.stop("fk-u");
     const a = await h.colab.usage();
     await Bun.sleep(200);
@@ -190,6 +190,25 @@ describe("driver: queries and lifecycle against the fake", () => {
     expect(a).toEqual(b);
     expect(a.assignments).toBe(0);
     expect(a.balance).toBeLessThan(mid.balance + 0.001);
+  });
+
+  test("per-GPU nominal rates, an unavailable GPU, and billing that lags the stop", async () => {
+    const h = harness({ FAKE_COLAB_CU_PER_SEC: "", FAKE_COLAB_RATES: "L4=1.71,A100=3600", FAKE_COLAB_UNAVAILABLE: "H100", FAKE_COLAB_SETTLE_LAG_MS: "400" });
+    const no = await h.colab.newSession("fk-h", "H100");
+    expect(no.ok).toBe(false);
+    expect(`${no.stderr}${no.stdout}`).toContain("H100");
+    expect(await h.colab.sessions()).toEqual([]);
+    await h.colab.newSession("fk-a", "A100"); // 1 CU/s
+    expect((await h.colab.usage()).rate).toBe(3600);
+    await Bun.sleep(600);
+    await h.colab.stop("fk-a");
+    const early = await h.colab.usage(); // billing is 400 ms behind
+    await Bun.sleep(600);
+    const settled = await h.colab.usage();
+    await Bun.sleep(200);
+    expect(await h.colab.usage()).toEqual(settled);
+    expect(settled.balance).toBeLessThan(early.balance);
+    expect(settled.assignments).toBe(0);
   });
 
   test("failed new reports not-ok without throwing (caller must still STOP)", async () => {

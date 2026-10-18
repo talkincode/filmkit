@@ -79,6 +79,8 @@ export interface CacheCost {
   sessionActualCU: number | null;
   /** session CU x this candidate's gen seconds / all gen seconds of the session; null when usage was unavailable. */
   attributedCU: number | null;
+  /** false: the balance had not settled after the stop, so the CU numbers are provisional (absent in old metas). */
+  usageSettled?: boolean;
   stopped: boolean;
   sessionsVerifiedEmpty: boolean;
 }

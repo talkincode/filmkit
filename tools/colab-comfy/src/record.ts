@@ -127,6 +127,7 @@ export function buildRecord(input: RecordInput): string {
       usageAfterCU: cost?.usageAfterCU ?? null,
       sessionActualCU: cost?.sessionActualCU ?? null,
       attributedCU: cost?.attributedCU ?? null,
+      usageSettled: cost?.usageSettled ?? null,
       attribution: ATTRIBUTION,
     },
     stop: { stopped: cost?.stopped ?? null, sessionsVerifiedEmpty: cost?.sessionsVerifiedEmpty ?? null },

@@ -4,6 +4,7 @@
 // Every tick (COLAB_COMFY_GUARD_TICK_MS, default 15 s):
 //   * active.json gone, or it records another session  -> the helper closed normally: exit 0
 //   * parent pid dead, or now > deadline + 300 s       -> stop + verify, clear active.json, exit
+//     (deadline = active.json's, which the helper updates after `new`; --deadline is the initial value)
 // Its lifetime is bounded: it gives up at deadline + 600 s even if the parent is still alive.
 
 import { closeSync, mkdirSync, openSync } from "node:fs";
@@ -42,8 +43,10 @@ export async function runGuard(o: GuardOptions): Promise<GuardResult> {
     const active = readActive(o.stateDir);
     if (!active || active.name !== o.session) return { exitCode: EXIT.ok, reason: "closed" };
     const now = Date.now() / 1000;
+    // The helper may move the deadline after `new` (GPU fallback, the real rate from `colab usage`): active.json wins.
+    const deadline = typeof active.deadline === "number" && Number.isFinite(active.deadline) ? active.deadline : o.deadline;
     const parentDead = !pidAlive(o.parentPid);
-    const pastDeadline = now > o.deadline + GUARD_GRACE_SEC;
+    const pastDeadline = now > deadline + GUARD_GRACE_SEC;
     if (parentDead || pastDeadline) {
       const reason = parentDead ? "parent-dead" : "past-deadline";
       log(`guard: ${reason}; stopping ${o.session}`);
@@ -60,7 +63,7 @@ export async function runGuard(o: GuardOptions): Promise<GuardResult> {
       else log(`SESSION_LEAK: guard could not release ${o.session}; run colab-comfy reap`);
       return { exitCode: r.verified ? EXIT.ok : EXIT.toolFailure, reason, stopVerified: r.verified };
     }
-    if (now > o.deadline + GUARD_MAX_LIFETIME_SEC) return { exitCode: EXIT.ok, reason: "lifetime-exceeded" };
+    if (now > deadline + GUARD_MAX_LIFETIME_SEC) return { exitCode: EXIT.ok, reason: "lifetime-exceeded" };
     await sleep(tickMs);
   }
 }

@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 import { batchEstimate, formatBatch, formatEstimate, runBatch } from "./batch.ts";
 import { Colab } from "./colab.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
-import { DEFAULT_BUDGET_CU, DEFAULT_GPU } from "./gate.ts";
+import { DEFAULT_BUDGET_CU, GPU_AUTO } from "./gate.ts";
 import { runGuard } from "./guard.ts";
 import { jobFrames, normalizeJob, validateJob, variantKey } from "./job.ts";
 import { formatCacheList, formatPrune, listCache, pruneCache } from "./cache-tools.ts";
@@ -27,9 +27,9 @@ const HELP = `colab-comfy — ComfyUI workflows on a Google Colab GPU, for filmk
 
 usage:
   colab-comfy validate <job flags> --out P --record R     offline checks; used by the Profile's validate
-  colab-comfy batch --estimate [--film F] [--nodes a,b] [--gpu L4] [--rate CU_PER_H] [--budget CU] [--yes] [--filmkit "<cmd>"] [--json]
+  colab-comfy batch --estimate [--film F] [--nodes a,b] [--gpu auto|L4|A100] [--rate CU_PER_H] [--budget CU] [--yes] [--filmkit "<cmd>"] [--json]
                                                           CU estimate + gate for every pending node; makes no colab call
-  colab-comfy batch [--film F] [--nodes a,b] [--yes] [--budget CU] [--gpu L4] [--rate CU_PER_H] [--max-wall SEC]
+  colab-comfy batch [--film F] [--nodes a,b] [--yes] [--budget CU] [--gpu auto|L4|A100] [--rate CU_PER_H] [--max-wall SEC]
                     [--session fk-NAME] [--filmkit "<cmd>"] [--no-materialize] [--json]
                                                           one Colab session for every pending node; always stops and verifies it
   colab-comfy reap [--film F] [--dry-run] [--json]        stop OUR leaked sessions (fk-* recorded in .colab-comfy/active.json); never others
@@ -88,7 +88,7 @@ const OPTIONS = {
   "parent-pid": { type: "string" },
   deadline: { type: "string" },
   state: { type: "string" },
-  gpu: { type: "string", default: DEFAULT_GPU },
+  gpu: { type: "string", default: GPU_AUTO },
   rate: { type: "string" },
   filmkit: { type: "string" },
   json: { type: "boolean", default: false },
@@ -215,7 +215,7 @@ async function batchCommand(v: Values, env: Record<string, string | undefined>, 
     film: v.film,
     nodes: v.nodes ? v.nodes.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
     filmkit: v.filmkit ?? env.COLAB_COMFY_FILMKIT ?? "filmkit",
-    gpu: v.gpu,
+    gpu: v.gpu.toLowerCase() === GPU_AUTO ? GPU_AUTO : v.gpu.toUpperCase(),
     rate: parseNumberFlag(v.rate, "rate"),
     budgetCU: budget,
     yes: v.yes,

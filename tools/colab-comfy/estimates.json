@@ -1,12 +1,27 @@
 {
-  "schema": "colab-comfy/estimates@1",
-  "startupSec": 480,
-  "firstLoadSec": 120,
-  "teardownSec": 120,
-  "downloadSecPerJob": 10,
-  "warmSecAtRef": { "dense": 260, "vsa-0.75": 190, "vsa-0.5": 220 },
+  "schema": "colab-comfy/estimates@2",
+  "calibration": "M8 real runs 2026-10-18 (README §Real run): L4 EP03 s1a/s3a/s4a and A100-40GB s1a seed+seed+1, all 704x1280",
   "reference": { "width": 1344, "height": 768, "frames": 124 },
   "scaleExponent": 1.0,
-  "rateCuPerHour": { "L4": 1.7 },
-  "margin": 1.2
+  "downloadSecPerJob": 10,
+  "margin": 1.2,
+  "autoGpus": ["L4", "A100"],
+  "gpus": {
+    "L4": {
+      "rateCuPerHour": 1.71,
+      "startupSec": 225,
+      "firstLoadSec": 0,
+      "teardownSec": 30,
+      "perJobInitSec": 80,
+      "warmSecAtRef": { "dense": 316, "vsa-0.75": 276, "vsa-0.5": 298 }
+    },
+    "A100": {
+      "rateCuPerHour": 5.3,
+      "startupSec": 215,
+      "firstLoadSec": 48,
+      "teardownSec": 30,
+      "perJobInitSec": 10,
+      "warmSecAtRef": { "dense": 61, "vsa-0.75": 53, "vsa-0.5": 58 }
+    }
+  }
 }

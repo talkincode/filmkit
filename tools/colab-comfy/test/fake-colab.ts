@@ -12,7 +12,15 @@
 //   * `upload` into a missing remote dir: rc 1 + a 500 whose URL carries a FAKE proxy token (redaction tests);
 //     `download` needs the local parent dir; `stop` on a missing session is rc 0 + "Session 'N' not found.".
 //   * `google.colab.runtime.unassign()` is stubbed by test/fake-pylib: the session then disappears.
-//   * `usage` charges FAKE_COLAB_CU_PER_SEC (default 1.7/3600) per second of session life, 2 decimals.
+//   * Each session has a nominal per-GPU rate (CU/h; FAKE_COLAB_RATES="L4=1.71,A100=5.3" overrides the
+//     defaults L4 1.71 / A100 5.3 / other 1.71) which `usage` shows as `Usage rate`, like the real CLI.
+//     Billing charges rate/3600 per second of session life (2 decimals) - unless FAKE_COLAB_CU_PER_SEC
+//     accelerates it for tests: then an L4 charges that many CU per second and other GPUs proportionally
+//     more (rate/1.71), while `Usage rate` still shows the nominal rate.
+//     FAKE_COLAB_CU_PER_SEC="" switches the acceleration off (billing = the shown rate).
+//     FAKE_COLAB_SETTLE_LAG_MS=N: billing lags N ms behind real time, like the real balance after a stop
+//     (M8 A100: 0.16 CU right after the stop, 0.60 CU settled): the balance only reflects usage up to now-N.
+//   * FAKE_COLAB_UNAVAILABLE=A100[,G4]: `new --gpu <that>` fails (rc 1) like an exhausted accelerator pool.
 // Fault injection (env): FAKE_COLAB_FAIL=new|exec|download|stop|stop-always (comma list, `kind:N` = first
 // N calls only; `stop` defaults to 1, `stop-always` never recovers), FAKE_COLAB_HANG=exec[:N] (the Nth exec
 // call, default first, hangs), FAKE_COLAB_DROP=after:N (session vanishes after N exec calls: preemption).
@@ -46,6 +54,9 @@ export function fakeColabEnv(stateDir: string, extra: Record<string, string> = {
   env.PATH = `${FAKE_BIN_DIR}:${env.PATH ?? ""}`;
   env.FAKE_COLAB_BUN = process.execPath;
   env.FAKE_COLAB_STATE = stateDir;
+  // The helper's post-stop balance settling polls every 30 s in production; tests poll fast unless they override it.
+  env.COLAB_COMFY_SETTLE_INTERVAL_SEC ??= "0.05";
+  env.COLAB_COMFY_SETTLE_TIMEOUT_SEC ??= "5";
   return { ...env, ...extra };
 }
 
@@ -96,6 +107,10 @@ interface Meta {
   releasedBy?: "stop" | "unassign" | "drop";
   pruned?: boolean;
   execCalls: number;
+  /** Billing speed for this session, CU per (real) second. */
+  cuPerSec?: number;
+  /** Nominal rate shown by `usage`, CU/h. */
+  ratePerHour?: number;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -103,7 +118,7 @@ const STATE = process.env.FAKE_COLAB_STATE ?? "";
 const sessDir = (name: string) => join(STATE, "sessions", name);
 const metaPath = (name: string) => join(sessDir(name), "meta.json");
 const ledgerPath = () => join(STATE, "ledger.json");
-const cuPerSec = () => Number(process.env.FAKE_COLAB_CU_PER_SEC ?? 1.7 / 3600);
+const cuPerSec = () => Number(process.env.FAKE_COLAB_CU_PER_SEC || 1.7 / 3600);
 
 function out(s: string) {
   process.stdout.write(s.endsWith("\n") ? s : s + "\n");
@@ -123,22 +138,55 @@ function saveMeta(m: Meta) {
   mkdirSync(sessDir(m.name), { recursive: true });
   writeFileSync(metaPath(m.name), JSON.stringify(m));
 }
-function spent(): number {
+interface FakeLedger {
+  /** True total spend of released sessions (tests read it as ground truth). */
+  spent: number;
+  /** Released sessions, for the billing-lag view of `usage`. */
+  released?: { createdAtMs: number; releasedAtMs: number; cuPerSec: number }[];
+}
+function readLedgerFile(): FakeLedger {
   try {
-    return (JSON.parse(readFileSync(ledgerPath(), "utf8")) as { spent: number }).spent;
+    return JSON.parse(readFileSync(ledgerPath(), "utf8")) as FakeLedger;
   } catch {
-    return 0;
+    return { spent: 0 };
   }
 }
-function addSpent(cu: number) {
-  writeFileSync(ledgerPath(), JSON.stringify({ spent: spent() + cu }));
+function spent(): number {
+  return readLedgerFile().spent;
 }
+function addSpent(cu: number, interval?: { createdAtMs: number; releasedAtMs: number; cuPerSec: number }) {
+  const l = readLedgerFile();
+  l.spent += cu;
+  if (interval) (l.released ??= []).push(interval);
+  writeFileSync(ledgerPath(), JSON.stringify(l));
+}
+const settleLagMs = () => Number(process.env.FAKE_COLAB_SETTLE_LAG_MS ?? 0);
+/** CU of [from, to] that billing has seen by `now` (billing lags settleLagMs behind). */
+function billed(fromMs: number, toMs: number, rate: number, now: number): number {
+  return (Math.max(0, Math.min(toMs, now - settleLagMs()) - fromMs) / 1000) * rate;
+}
+const BASE_RATE = 1.71;
+const DEFAULT_RATES: Record<string, number> = { L4: BASE_RATE, A100: 5.3 };
+function nominalRate(hardware: string): number {
+  const gpu = hardware.replace(/^GPU\s+/, "").toUpperCase();
+  for (const pair of (process.env.FAKE_COLAB_RATES ?? "").split(",")) {
+    const [k, v] = pair.split("=");
+    if (k && v && k.trim().toUpperCase() === gpu) return Number(v);
+  }
+  return DEFAULT_RATES[gpu] ?? BASE_RATE;
+}
+function billingSpeed(ratePerHour: number): number {
+  const accel = process.env.FAKE_COLAB_CU_PER_SEC;
+  return accel !== undefined && accel !== "" ? Number(accel) * (ratePerHour / BASE_RATE) : ratePerHour / 3600;
+}
+const metaRate = (m: Meta) => m.cuPerSec ?? cuPerSec();
+const metaRatePerHour = (m: Meta) => m.ratePerHour ?? metaRate(m) * 3600;
 
 function release(m: Meta, by: NonNullable<Meta["releasedBy"]>, atMs = Date.now()) {
   if (m.releasedAtMs) return;
   m.releasedAtMs = atMs;
   m.releasedBy = by;
-  addSpent(((atMs - m.createdAtMs) / 1000) * cuPerSec());
+  addSpent(((atMs - m.createdAtMs) / 1000) * metaRate(m), { createdAtMs: m.createdAtMs, releasedAtMs: atMs, cuPerSec: metaRate(m) });
   saveMeta(m);
   killVmProcesses(m.name);
 }
@@ -260,9 +308,12 @@ function cmdUsage(): number {
   const live = allMetas().filter((m) => !m.releasedAtMs);
   const now = Date.now();
   const initial = Number(process.env.FAKE_COLAB_BALANCE ?? 100);
-  const running = live.reduce((s, m) => s + ((now - m.createdAtMs) / 1000) * cuPerSec(), 0);
-  out(`Current balance: ${(initial - spent() - running).toFixed(2)} compute units`);
-  out(`Usage rate: ${(live.length * cuPerSec() * 3600).toFixed(2)}/hr`);
+  const l = readLedgerFile();
+  // Released sessions not yet fully billed: subtract what billing has not seen yet (0 without a lag).
+  const unbilled = (l.released ?? []).reduce((s, r) => s + ((r.releasedAtMs - r.createdAtMs) / 1000) * r.cuPerSec - billed(r.createdAtMs, r.releasedAtMs, r.cuPerSec, now), 0);
+  const running = live.reduce((s, m) => s + billed(m.createdAtMs, Infinity, metaRate(m), now), 0);
+  out(`Current balance: ${(initial - (l.spent - unbilled) - running).toFixed(2)} compute units`);
+  out(`Usage rate: ${live.reduce((s, m) => s + metaRatePerHour(m), 0).toFixed(2)}/hr`);
   out(`Active assignments: ${live.length}`);
   return 0;
 }
@@ -290,11 +341,16 @@ function cmdNew(p: Parsed): number {
   sweep();
   if (failNow("new")) return err("Error: failed to allocate a runtime (injected by FAKE_COLAB_FAIL=new)"), 1;
   if (active(name)) return err(`Error: Session '${name}' already exists.`), 1;
+  const unavailable = (process.env.FAKE_COLAB_UNAVAILABLE ?? "").split(",").map((g) => g.trim().toUpperCase()).filter(Boolean);
+  if (p.gpu && unavailable.includes(p.gpu.toUpperCase())) {
+    return err(`Error: Unable to assign a ${p.gpu} runtime: no ${p.gpu} accelerators are available right now (injected by FAKE_COLAB_UNAVAILABLE).`), 1;
+  }
   out(`[colab] Creating session '${name}'...`);
   rmSync(sessDir(name), { recursive: true, force: true }); // a fresh VM has an empty /content
   mkdirSync(join(sessDir(name), "content"), { recursive: true });
   const gpu = p.gpu && p.gpu.toUpperCase() !== "CPU" ? p.gpu : undefined;
-  saveMeta({ name, endpoint: `https://fake-colab.invalid/runtime/${name}`, hardware: gpu ? `GPU ${gpu}` : "CPU", createdAtMs: Date.now(), execCalls: 0 });
+  const hardware = gpu ? `GPU ${gpu}` : "CPU";
+  saveMeta({ name, endpoint: `https://fake-colab.invalid/runtime/${name}`, hardware, createdAtMs: Date.now(), execCalls: 0, ratePerHour: nominalRate(hardware), cuPerSec: billingSpeed(nominalRate(hardware)) });
   out("[colab] Session READY.");
   return 0;
 }

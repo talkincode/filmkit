@@ -20,6 +20,7 @@ import { Colab } from "../src/colab.ts";
 import { acquireBatchLock, activePath, pidAlive, readActive, readLedger, stateDir, writeActive } from "../src/ledger.ts";
 import { classifySessions } from "../src/reap.ts";
 import { computeDeadlineMs, sessionName } from "../src/session.ts";
+import { runGuard } from "../src/guard.ts";
 import { backoffFromEnv } from "../src/teardown.ts";
 import { fakeColabEnv, readCalls } from "./fake-colab.ts";
 import { makeSampleMp4, startMockComfy, type MockComfy, type MockMode } from "./mock-comfy.ts";
@@ -290,7 +291,8 @@ d("lifecycle (fake colab + real VM scripts + mock ComfyUI)", () => {
     expect(subs.slice(0, 4)).toEqual(["version", "sessions", "usage", "new"]);
     expect(subs[4]).toBe("status");
     const stopAt = subs.lastIndexOf("stop");
-    expect(subs.slice(stopAt + 1)).toEqual(["sessions", "usage"]); // nothing after stop except verification + usage
+    // nothing after stop except verification + usage until two equal readings (the balance has settled)
+    expect(subs.slice(stopAt + 1)).toEqual(["sessions", "usage", "usage"]);
     expect(subs.filter((x) => x === "stop")).toHaveLength(1);
     const lines = h.callLines();
     const mkdirsAt = lines.findIndex((l) => l.includes("fk_mkdirs.py"));
@@ -775,4 +777,148 @@ d("lifecycle (fake colab + real VM scripts + mock ComfyUI)", () => {
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("--session is required");
   });
+
+  // ---------------- --gpu auto, A100-unavailable fallback, real-rate guard, settling (fake shim) ----------------
+  const gpuOfNew = (h: H) => readCalls(h.state).filter((c) => c.sub === "new").map((c) => /--gpu\s+(\S+)/.exec(c.line)?.[1] ?? null);
+
+  test("L16 --gpu auto (default) picks A100 for many clips: one A100 session, observed rate 5.3 drives the guard, ledger says auto->A100", async () => {
+    const h = setup({ nodes: 8 });
+    const est = await h.run(h.batchArgs("--estimate", "--budget", "5", "--yes"));
+    expect(est.json.gpuChoice.chosen).toBe("A100");
+    expect(est.json.gpuChoice.fallback.gpu).toBe("L4");
+    const r = await h.run(h.batchArgs("--yes", "--budget", "5"));
+    expect(r.exitCode).toBe(0);
+    const s = (r.json as BatchReport).session!;
+    expect(s).toMatchObject({ outcome: "ok", jobsOk: 8, gpu: "A100", gpuRequested: "auto", rateObservedCuPerHour: 5.3, usageSettled: true });
+    expect(s.gpuFallback).toBeUndefined();
+    expect(gpuOfNew(h)).toEqual(["A100"]);
+    expect(ledger(h)[0]).toMatchObject({ gpu: "A100", gpuRequested: "auto", rateObservedCuPerHour: 5.3, usageSettled: true });
+    expect(await h.sessions()).toEqual([]);
+  }, 90_000);
+
+  test("L16b --gpu auto picks L4 for a few clips; an explicit --gpu L4 / A100 is honoured as given", async () => {
+    const h = setup({ nodes: 2 });
+    const r = await h.run(h.batchArgs("--yes"));
+    expect(r.exitCode).toBe(0);
+    expect((r.json as BatchReport).session).toMatchObject({ gpu: "L4", gpuRequested: "auto", rateObservedCuPerHour: 1.71 });
+    expect(gpuOfNew(h)).toEqual(["L4"]);
+
+    const h2 = setup({ nodes: 1 });
+    const a = await h2.run(h2.batchArgs("--gpu", "A100", "--yes", "--budget", "2"));
+    expect(a.exitCode).toBe(0);
+    expect((a.json as BatchReport).session).toMatchObject({ gpu: "A100", gpuRequested: "A100" });
+    expect(gpuOfNew(h2)).toEqual(["A100"]);
+    expect(await h.sessions()).toEqual([]);
+    expect(await h2.sessions()).toEqual([]);
+  }, 90_000);
+
+  test("L17 A100 unavailable at `colab new` under --gpu auto: falls back to L4 (fits the budget), logged, still one session", async () => {
+    const h = setup({ nodes: 8, env: { FAKE_COLAB_UNAVAILABLE: "A100" } });
+    // a real subprocess with progress logging on, so the fallback log line is visible on stderr
+    const sp = await h.spawn(h.batchArgs("--yes", "--budget", "5"), { COLAB_COMFY_QUIET: "" }).done;
+    const r = { exitCode: sp.code, stderr: sp.stderr, json: JSON.parse(sp.stdout) };
+    expect(r.exitCode).toBe(0);
+    const s = (r.json as BatchReport).session!;
+    expect(s).toMatchObject({ outcome: "ok", jobsOk: 8, gpu: "L4", gpuRequested: "auto", rateObservedCuPerHour: 1.71 });
+    expect(s.gpuFallback).toMatchObject({ from: "A100", to: "L4" });
+    expect(s.gpuFallback!.reason).toContain("A100");
+    expect(gpuOfNew(h)).toEqual(["A100", "L4"]);
+    // between the failed and the fallback `new`: the session list was checked (exactly one session)
+    const subs = h.calls();
+    const first = subs.indexOf("new");
+    expect(subs.slice(first + 1, subs.indexOf("new", first + 1))).toEqual(["sessions"]);
+    expect(r.stderr).toContain("A100 unavailable");
+    expect(r.stderr).toContain("falls back to L4");
+    const led = ledger(h)[0]!;
+    expect(led).toMatchObject({ gpu: "L4", gpuRequested: "auto", gpuFallback: { from: "A100", to: "L4" } });
+    expect(led.estimateCU).toBeGreaterThan((r.json as BatchReport).estimate.cu); // the L4 estimate, not A100's
+    expect(await h.sessions()).toEqual([]);
+  }, 90_000);
+
+  test("L17b A100 unavailable and the L4 estimate does NOT fit the budget: no fallback, no session, nothing spent", async () => {
+    const h = setup({ nodes: 8, env: { FAKE_COLAB_UNAVAILABLE: "A100" } });
+    const est = (await h.run(h.batchArgs("--estimate", "--yes", "--budget", "9"))).json;
+    const [l4, a100] = est.gpuChoice.candidates as { gpu: string; cu: number }[];
+    expect([l4!.gpu, a100!.gpu]).toEqual(["L4", "A100"]);
+    const budget = ((l4!.cu + a100!.cu) / 2).toFixed(3); // A100 fits, L4 does not
+    const r = await h.run(h.batchArgs("--yes", "--budget", budget));
+    expect(r.exitCode).not.toBe(0);
+    expect(gpuOfNew(h)).toEqual(["A100"]);
+    expect(h.clips()).toBe(0);
+    expect(await h.sessions()).toEqual([]);
+    expect(existsSync(join(h.state, "ledger.json")) ? fakeBalanceAfter(h) : 100).toBe(100); // nothing billed
+  }, 90_000);
+
+  test("L17c explicit --gpu A100 never falls back", async () => {
+    const h = setup({ nodes: 1, env: { FAKE_COLAB_UNAVAILABLE: "A100" } });
+    const r = await h.run(h.batchArgs("--gpu", "A100", "--yes", "--budget", "5"));
+    expect(r.exitCode).not.toBe(0);
+    expect(gpuOfNew(h)).toEqual(["A100"]);
+    expect(await h.sessions()).toEqual([]);
+  }, 60_000);
+
+  test("L18 the observed `Usage rate` after `new` is the budget guard: far above the estimate -> abort before upload, stop, verify", async () => {
+    const h = setup({ nodes: 1, env: { FAKE_COLAB_RATES: "L4=40" } });
+    const r = await h.run(h.batchArgs("--budget", "1"));
+    expect(r.exitCode).toBe(4);
+    const s = (r.json as BatchReport).session!;
+    expect(s).toMatchObject({ outcome: "aborted-deadline", abortReason: "budget", rateObservedCuPerHour: 40 });
+    expect(s.error).toContain("observed rate 40 CU/h");
+    expect(h.callLines().some((l) => l.includes(" upload "))).toBe(false);
+    expect(s.stop.verified).toBe(true);
+    expect(await h.sessions()).toEqual([]);
+  }, 60_000);
+
+  test("L19 delayed billing: the balance is polled after the stop until two readings agree; actual CU = the settled spend", async () => {
+    const h = setup({
+      nodes: 1,
+      // un-accelerated billing at a fast nominal rate (720 CU/h = 0.2 CU/s), so rate x lifetime is consistent
+      env: { FAKE_COLAB_CU_PER_SEC: "", FAKE_COLAB_RATES: "L4=720", FAKE_COLAB_SETTLE_LAG_MS: "1500", COLAB_COMFY_SETTLE_INTERVAL_SEC: "0.5", COLAB_COMFY_SETTLE_TIMEOUT_SEC: "20" },
+    });
+    const r = await h.run(h.batchArgs("--budget", "300"));
+    expect(r.exitCode).toBe(0);
+    const s = (r.json as BatchReport).session!;
+    expect(s.usageSettled).toBe(true);
+    const subs = h.calls();
+    const after = subs.slice(subs.lastIndexOf("stop") + 1);
+    expect(after[0]).toBe("sessions");
+    // the first readings were stale (billing 1.5 s behind): equal but implausibly low, so polling went on
+    expect(after.filter((x) => x === "usage").length).toBeGreaterThanOrEqual(3);
+    expect(s.usageAfterCU).toBe(fakeBalanceAfter(h)); // the settled balance = the fake's true total
+    expect(s.actualCU).toBe(round2(100 - fakeBalanceAfter(h)));
+    expect(ledger(h)[0]).toMatchObject({ usageSettled: true, actualCU: s.actualCU });
+    expect(s.warnings.join("\n")).not.toContain("PROVISIONAL");
+    expect(await h.sessions()).toEqual([]);
+  }, 60_000);
+
+  test("L19b billing still lagging at the settle timeout: actual CU recorded as PROVISIONAL (warning, ledger, clip cost)", async () => {
+    const h = setup({
+      nodes: 1,
+      // un-accelerated billing at a fast nominal rate (720 CU/h = 0.2 CU/s), so rate x lifetime is consistent
+      env: { FAKE_COLAB_CU_PER_SEC: "", FAKE_COLAB_RATES: "L4=720", FAKE_COLAB_SETTLE_LAG_MS: "60000", COLAB_COMFY_SETTLE_INTERVAL_SEC: "0.3", COLAB_COMFY_SETTLE_TIMEOUT_SEC: "1" },
+    });
+    const r = await h.run(h.batchArgs("--budget", "300"));
+    expect(r.exitCode).toBe(0);
+    const s = (r.json as BatchReport).session!;
+    expect(s.usageSettled).toBe(false);
+    expect(s.warnings.join("\n")).toContain("PROVISIONAL");
+    expect(s.actualCU!).toBeLessThan(round2(100 - fakeBalanceAfter(h))); // too low: billing had not caught up
+    expect(ledger(h)[0]).toMatchObject({ usageSettled: false });
+    const meta = JSON.parse(readFileSync(cachePaths(h.dir, s.jobs[0]!.key).meta, "utf8"));
+    expect(meta.cost.usageSettled).toBe(false);
+    expect(await h.sessions()).toEqual([]);
+  }, 60_000);
+
+  test("L20 the guard follows the deadline in active.json (moved after `new`), not only its --deadline argument", async () => {
+    const h = setup({ nodes: 1 });
+    const name = "fk-guard-moved-202610180000";
+    await new Colab({ env: h.env }).newSession(name, "L4");
+    const now = Date.now() / 1000;
+    // the helper moved the deadline into the past (e.g. the real rate was higher); the argv deadline is far away
+    writeActive(stateDir(h.dir), { name, pid: process.pid, deadline: now - 1000, phase: "running", film: "f", startedAt: new Date().toISOString() });
+    const r = await runGuard({ session: name, parentPid: process.pid, deadline: now + 86_400, stateDir: stateDir(h.dir), env: h.env });
+    expect(r.reason).toBe("past-deadline");
+    expect(r.stopVerified).toBe(true);
+    expect(await h.sessions()).toEqual([]);
+  }, 30_000);
 });

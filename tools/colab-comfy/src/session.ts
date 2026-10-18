@@ -24,7 +24,8 @@ import type { SelectedNode } from "./batch.ts";
 import { buildJobsDoc, VM_DIR, writeBundle, type JobsDoc } from "./bundle.ts";
 import { attachCost, cachePaths, writeFileAtomic } from "./cache.ts";
 import { sha256File } from "./canonical.ts";
-import { Colab, isReleasing, type CallLogEntry, type ColabOptions } from "./colab.ts";
+import { Colab, isReleasing, type CallLogEntry, type ColabOptions, type UsageInfo } from "./colab.ts";
+import { cuFor } from "./estimate.ts";
 import { ColabComfyError, EXIT } from "./errors.ts";
 import { spawnGuard } from "./guard.ts";
 import { appendLedger, removeActive, stateDir, writeActive, writeSessionFile, type ActiveRecord } from "./ledger.ts";
@@ -50,6 +51,16 @@ export interface SessionOptions {
   budgetCU: number;
   estimateCU: number;
   rateCuPerHour: number;
+  /** Estimated billed seconds and margin: re-checked against the rate `colab usage` reports after `new`. */
+  estimateTotalSec?: number;
+  margin?: number;
+  /** As the user asked (`auto`, `L4`, ...); default = gpu. */
+  gpuRequested?: string;
+  /**
+   * `--gpu auto` only: opened instead when `colab new` cannot get `gpu` (e.g. A100 unavailable). Only set when its
+   * estimate fits the budget. Still exactly one session: the failed request is verified absent first.
+   */
+  fallback?: { gpu: string; estimateCU: number; rateCuPerHour: number; totalSec: number } | null;
   maxWallSec?: number;
   /** Nodes with at least one uncached candidate. */
   nodes: SelectedNode[];
@@ -88,6 +99,19 @@ export interface SessionResult {
   usageBeforeCU: number;
   usageAfterCU: number | null;
   actualCU: number | null;
+  /**
+   * The balance settled after the stop (two consecutive equal `colab usage` readings). false = the settle timeout
+   * (or an interrupt) came first: usageAfterCU/actualCU are PROVISIONAL and probably too low (billing lags).
+   */
+  usageSettled: boolean;
+  /** GPU actually opened (after a fallback, the fallback GPU). */
+  gpu: string;
+  gpuRequested: string;
+  gpuFallback?: { from: string; to: string; reason: string };
+  /** `Usage rate` reported right after `new` (null when it read 0 or failed). */
+  rateObservedCuPerHour: number | null;
+  /** Estimate for the GPU actually opened. */
+  estimateCU: number;
   stop: StopOutcome;
   /** SESSION_LEAK: the session is still listed after all stop attempts. */
   leak: boolean;
@@ -245,6 +269,8 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
   const collectSec = envNum(env, "COLAB_COMFY_COLLECT_SEC", 60);
   const usageEverySec = envNum(env, "COLAB_COMFY_USAGE_SEC", 300);
   const staleSec = envNum(env, "COLAB_COMFY_HEARTBEAT_STALE_SEC", 180);
+  const settleIntervalSec = envNum(env, "COLAB_COMFY_SETTLE_INTERVAL_SEC", 30);
+  const settleTimeoutSec = envNum(env, "COLAB_COMFY_SETTLE_TIMEOUT_SEC", 210);
   const backoff = backoffFromEnv(env);
 
   const transcript: { args: string[]; code: number | null; timedOut: boolean; ms: number; stdout: string; stderr: string }[] = [];
@@ -280,15 +306,26 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
   const usageBefore = await colab.usage();
 
   const startedMs = Date.now();
-  const deadlineMs = computeDeadlineMs(startedMs, o);
-  const deadlineEpoch = deadlineMs / 1000;
+  // Mutable: a GPU fallback or the rate `colab usage` reports after `new` recompute it (active.json carries it to the guard).
+  let gpu = o.gpu;
+  let rateCuPerHour = o.rateCuPerHour;
+  let estimateCU = o.estimateCU;
+  let estimateTotalSec = o.estimateTotalSec;
+  let rateObserved: number | null = null;
+  /** When the `colab new` that succeeded was issued (billing starts there); null = no session was opened. */
+  let billedFromMs: number | null = null;
+  let gpuFallback: SessionResult["gpuFallback"];
+  let deadlineMs = computeDeadlineMs(startedMs, o);
   // Built before OPEN: a bad input (e.g. key mismatch) must fail while nothing is running.
-  const built = buildJobsDoc({ session: o.name, nodes: o.nodes, baseDir: o.baseDir, limits: { hardDeadlineEpoch: Math.floor(deadlineEpoch) + VM_DEADLINE_AFTER_HOST_SEC } });
+  const buildFor = (deadline: number) =>
+    buildJobsDoc({ session: o.name, nodes: o.nodes, baseDir: o.baseDir, limits: { hardDeadlineEpoch: Math.floor(deadline / 1000) + VM_DEADLINE_AFTER_HOST_SEC } });
+  let built = buildFor(deadlineMs);
   const doc: JobsDoc = built.doc;
   const work = mkdtempSync(join(tmpdir(), "colab-comfy-session-"));
   const bundle = join(work, "bundle.tar.gz");
+  const secretsEnv = env.HF_TOKEN ? `HF_TOKEN=${env.HF_TOKEN}\n` : undefined;
   try {
-    await writeBundle({ built, outFile: bundle, secretsEnv: env.HF_TOKEN ? `HF_TOKEN=${env.HF_TOKEN}\n` : undefined });
+    await writeBundle({ built, outFile: bundle, secretsEnv });
   } catch (err) {
     rmSync(work, { recursive: true, force: true });
     throw err;
@@ -298,7 +335,7 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
   const ctl = new Control();
   const uninstall = o.installHandlers === false ? () => {} : installHandlers(ctl, colab, log, salvageSec);
   const startedAt = new Date(startedMs).toISOString();
-  const active: ActiveRecord = { name: o.name, pid: process.pid, deadline: deadlineEpoch, phase: "opening", film: o.film, startedAt };
+  const active: ActiveRecord = { name: o.name, pid: process.pid, deadline: deadlineMs / 1000, phase: "opening", film: o.film, startedAt };
   const setActivePhase = (phase: ActiveRecord["phase"]) => {
     active.phase = phase;
     writeActive(dir, active);
@@ -469,14 +506,37 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
     const leak = !stop.verified;
     const warnings: string[] = leak ? [...stop.notes] : [];
 
+    // Billing lags the stop (M8 A100: 0.16 CU right after the stop, 0.60 CU settled a few seconds later), so the
+    // balance is polled until two consecutive readings agree. A timeout or an interrupt records it as provisional.
+    // A stale balance can also read the same twice, so equal readings only count once the spend is plausible:
+    // at least half of rate x session lifetime (billing never charged less than that in M8/A100).
+    const stoppedMs = Date.now();
+    const settleRate = rateObserved ?? rateCuPerHour;
+    const plausibleCU = billedFromMs === null ? 0 : 0.5 * settleRate * ((stoppedMs - billedFromMs) / 3_600_000);
     let usageAfterCU: number | null = null;
-    try {
-      const u = await colab.usage();
-      usageAfterCU = u.balance;
-      if (stop.verified && u.assignments > 0) warnings.push(`colab usage still reports ${u.assignments} active assignment(s) although ${o.name} is gone (another session of this account?)`);
-    } catch (err) {
-      warnings.push(`usage after the run unavailable: ${(err as Error).message.split("\n")[0]}`);
+    let usageSettled = false;
+    let lastUsage: UsageInfo | null = null;
+    const interrupted = () => ctl.signals > 0 || ctl.fatal !== undefined;
+    const settleStart = Date.now();
+    for (;;) {
+      try {
+        const u = await colab.usage();
+        if (lastUsage !== null && u.balance === lastUsage.balance && round2(usageBefore.balance - u.balance) >= round2(plausibleCU) - 0.01) usageSettled = true;
+        lastUsage = u;
+        usageAfterCU = u.balance;
+      } catch (err) {
+        warnings.push(`usage after the run unavailable: ${(err as Error).message.split("\n")[0]}`);
+      }
+      if (usageSettled || !stop.verified || interrupted()) break;
+      if (Date.now() - settleStart + settleIntervalSec * 1000 > settleTimeoutSec * 1000) break;
+      await ctl.sleep(settleIntervalSec * 1000);
+      if (interrupted()) break;
     }
+    if (usageAfterCU !== null && !usageSettled) {
+      warnings.push(`balance did not settle within ${settleTimeoutSec}s after the stop: actualCU is PROVISIONAL (billing lags; check \`colab usage\` later)`);
+      log("usage: balance not settled; actual CU recorded as provisional");
+    }
+    if (lastUsage && stop.verified && lastUsage.assignments > 0) warnings.push(`colab usage still reports ${lastUsage.assignments} active assignment(s) although ${o.name} is gone (another session of this account?)`);
     timing.teardownSec = Math.round((Date.now() - tTear) / 1000);
     const actualCU = usageAfterCU === null ? null : round2(usageBefore.balance - usageAfterCU);
 
@@ -514,6 +574,12 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
       usageBeforeCU: usageBefore.balance,
       usageAfterCU,
       actualCU,
+      usageSettled,
+      gpu,
+      gpuRequested: o.gpuRequested ?? o.gpu,
+      ...(gpuFallback ? { gpuFallback } : {}),
+      rateObservedCuPerHour: rateObserved,
+      estimateCU,
       stop,
       leak,
       warnings,
@@ -528,16 +594,20 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
         session: o.name,
         film: o.film,
         filmSha256: o.filmSha256 ?? null,
-        gpu: o.gpu,
+        gpu,
+        gpuRequested: o.gpuRequested ?? o.gpu,
+        ...(gpuFallback ? { gpuFallback } : {}),
+        rateObservedCuPerHour: rateObserved,
         startedAt,
         endedAt,
         jobs: list.length,
         jobsOk,
-        estimateCU: o.estimateCU,
+        estimateCU,
         budgetCU: o.budgetCU,
         usageBeforeCU: usageBefore.balance,
         usageAfterCU,
         actualCU,
+        usageSettled,
         outcome,
         ...(abortReason ? { abortReason } : {}),
         stopVerified: stop.verified,
@@ -557,10 +627,11 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
       try {
         attachCost(o.baseDir, j.key, {
           session: o.name,
-          estimateCU: o.estimateCU,
+          estimateCU,
           usageBeforeCU: usageBefore.balance,
           usageAfterCU,
           sessionActualCU: actualCU,
+          usageSettled,
           attributedCU: actualCU === null ? null : Math.round(actualCU * share * 10000) / 10000,
           stopped: stop.stopped,
           sessionsVerifiedEmpty: stop.verified,
@@ -583,7 +654,7 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
     writeActive(dir, active);
     if (o.guard !== false) {
       try {
-        active.guardPid = spawnGuard({ session: o.name, parentPid: process.pid, deadline: deadlineEpoch, stateDir: dir, env });
+        active.guardPid = spawnGuard({ session: o.name, parentPid: process.pid, deadline: deadlineMs / 1000, stateDir: dir, env });
         writeActive(dir, active);
       } catch (err) {
         log(`warning: could not start the guard (${(err as Error).message}); relying on finally and signals`);
@@ -591,17 +662,71 @@ export async function runSession(o: SessionOptions): Promise<SessionResult> {
     }
 
     // ---------------- OPEN ----------------
-    log(`opening session ${o.name} (${o.gpu})`);
+    log(`opening session ${o.name} (${gpu}${(o.gpuRequested ?? gpu) !== gpu ? `, chosen by --gpu ${o.gpuRequested}` : ""})`);
     const tNew = Date.now();
-    const nr = await colab.newSession(o.name, o.gpu);
-    timing.newSec = Math.round((Date.now() - tNew) / 1000);
+    let nr = await colab.newSession(o.name, gpu);
+    if (nr.ok) billedFromMs = tNew;
     abortIfRequested();
     if (!nr.ok) {
       const text = `${nr.stderr}\n${nr.stdout}`;
-      throw new Unwind("error", `colab new ${nr.timedOut ? "timed out" : `exited ${nr.code}`}: ${tail(text, 4, 400)}`, newFailureExit(text));
+      const why = `colab new --gpu ${gpu} ${nr.timedOut ? "timed out" : `exited ${nr.code}`}: ${tail(text.trim(), 4, 400)}`;
+      const fb = o.fallback;
+      if (!fb || newFailureExit(text) === EXIT.missingDependency) throw new Unwind("error", why, newFailureExit(text));
+      // Exactly one session: the failed request must not have left anything behind before the fallback opens.
+      let others: string[];
+      try {
+        others = (await colab.sessions()).map((s) => s.name);
+      } catch (err) {
+        throw new Unwind("error", `${why}; no fallback: cannot list sessions (${(err as Error).message.split("\n")[0]})`);
+      }
+      if (others.includes(o.name)) {
+        const st = await stopAndVerify(colab, o.name, backoff, log);
+        if (!st.verified) throw new Unwind("error", `${why}; no fallback: the half-created session could not be verified gone`);
+        others = others.filter((n) => n !== o.name);
+      }
+      if (others.length) throw new Unwind("error", `${why}; no fallback: other session(s) active: ${others.join(", ")}`);
+      log(`${gpu} unavailable (${tail(text.trim(), 1, 160).trim()}); --gpu auto falls back to ${fb.gpu}: estimate ${fb.estimateCU.toFixed(2)} CU <= budget ${o.budgetCU.toFixed(2)} CU`);
+      gpuFallback = { from: gpu, to: fb.gpu, reason: tail(text.trim(), 2, 300).trim() || why };
+      gpu = fb.gpu;
+      rateCuPerHour = fb.rateCuPerHour;
+      estimateCU = fb.estimateCU;
+      estimateTotalSec = fb.totalSec;
+      const tFb = Date.now();
+      nr = await colab.newSession(o.name, gpu);
+      if (nr.ok) billedFromMs = tFb;
+      abortIfRequested();
+      if (!nr.ok) {
+        const t2 = `${nr.stderr}\n${nr.stdout}`;
+        throw new Unwind("error", `${why}; fallback colab new --gpu ${gpu} ${nr.timedOut ? "timed out" : `exited ${nr.code}`}: ${tail(t2, 4, 400)}`, newFailureExit(t2));
+      }
     }
+    timing.newSec = Math.round((Date.now() - tNew) / 1000);
     const st0 = await colab.status(o.name); // A6: `new` returns after READY; one sanity call only
     if (!st0.found) throw new Unwind("error", "session not found right after `colab new`");
+
+    // Budget guard with the REAL rate: `Usage rate` right after `new` (one session only, so it is ours).
+    try {
+      const u = await colab.usage();
+      if (u.rate > 0) rateObserved = u.rate;
+    } catch (err) {
+      log(`usage after new failed: ${(err as Error).message.split("\n")[0]}; keeping the estimated rate`);
+    }
+    if (rateObserved !== null) {
+      if (Math.abs(rateObserved - rateCuPerHour) > 0.05) log(`observed rate ${rateObserved} CU/h (estimate assumed ${rateCuPerHour})`);
+      if (estimateTotalSec !== undefined) {
+        const projected = cuFor(estimateTotalSec, rateObserved, o.margin ?? 1);
+        if (projected > o.budgetCU) throw new Unwind("budget", `projected ${projected.toFixed(2)} CU at the observed rate ${rateObserved} CU/h exceeds the budget ${o.budgetCU.toFixed(2)} CU`);
+      }
+      rateCuPerHour = rateObserved;
+    }
+    const newDeadline = computeDeadlineMs(startedMs, { budgetCU: o.budgetCU, rateCuPerHour, maxWallSec: o.maxWallSec });
+    if (newDeadline !== deadlineMs) {
+      deadlineMs = newDeadline;
+      active.deadline = deadlineMs / 1000; // the guard re-reads it from active.json every tick
+      writeActive(dir, active);
+      built = buildFor(deadlineMs); // the VM watchdog's hard deadline follows
+      await writeBundle({ built, outFile: bundle, secretsEnv });
+    }
 
     // ---------------- UPLOAD ----------------
     setActivePhase("uploading");

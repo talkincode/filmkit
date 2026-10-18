@@ -2,11 +2,15 @@
 //
 //   estimate > budget            -> needs-confirmation; `yes` does NOT override, only a bigger budget does
 //   jobs > 1 and not yes         -> needs-confirmation (a batch always needs an explicit yes)
-//   gpu != L4 and not (yes and an explicit rate) -> needs-confirmation
+//   uncalibrated gpu and not (yes and an explicit rate) -> needs-confirmation (gpu-needs-rate)
+//   calibrated gpu other than L4 (A100) and not yes     -> needs-confirmation (gpu-needs-yes): A100/H100 always
+//                                                          need the user's confirmation (Colab skill rule)
 //   otherwise                    -> proceed
 
 export const DEFAULT_BUDGET_CU = 1.0;
 export const DEFAULT_GPU = "L4";
+/** `--gpu auto` (the CLI default): L4 or A100, whichever the calibrated estimate says is cheaper. */
+export const GPU_AUTO = "auto";
 
 export interface GateInput {
   jobs: number;
@@ -15,10 +19,12 @@ export interface GateInput {
   yes: boolean;
   gpu: string;
   rateExplicit: boolean;
+  /** The GPU has its own entry in estimates.json (rate + timings). Default: gpu === L4. */
+  calibrated?: boolean;
 }
 
 export interface GateReason {
-  code: "over-budget" | "batch-needs-yes" | "gpu-needs-rate";
+  code: "over-budget" | "batch-needs-yes" | "gpu-needs-rate" | "gpu-needs-yes";
   message: string;
   hint: string;
 }
@@ -50,11 +56,18 @@ export function decide(i: GateInput): GateResult {
         hint: "confirm with the user, then re-run with --yes",
       });
     }
-    if (i.gpu !== DEFAULT_GPU && !(i.yes && i.rateExplicit)) {
+    const calibrated = i.calibrated ?? i.gpu === DEFAULT_GPU;
+    if (!calibrated && !(i.yes && i.rateExplicit)) {
       reasons.push({
         code: "gpu-needs-rate",
-        message: `GPU ${i.gpu} is not the calibrated ${DEFAULT_GPU}`,
+        message: `GPU ${i.gpu} has no calibration in estimates.json`,
         hint: "pass --yes and an explicit --rate <CU per hour>",
+      });
+    } else if (calibrated && i.gpu !== DEFAULT_GPU && !i.yes) {
+      reasons.push({
+        code: "gpu-needs-yes",
+        message: `GPU ${i.gpu} costs more per hour than ${DEFAULT_GPU} and needs explicit confirmation`,
+        hint: "confirm with the user, then re-run with --yes",
       });
     }
   }

@@ -9,9 +9,9 @@ import { dirname, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { cacheHit, cachePaths, jobCacheKey } from "./cache.ts";
 import { sha256Hex } from "./canonical.ts";
-import { ColabComfyError, EXIT, type Detail } from "./errors.ts";
-import { estimateCU, loadEstimates, type Breakdown, type EstimateJob } from "./estimate.ts";
-import { decide, type GateResult } from "./gate.ts";
+import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
+import { chooseGpu, estimateCU, isCalibrated, loadEstimates, type Breakdown, type EstimateJob } from "./estimate.ts";
+import { decide, GPU_AUTO, type GateResult } from "./gate.ts";
 import { jobFrames, normalizeJob, resolveRefs, validateJob, variantKey, type Job } from "./job.ts";
 import { acquireBatchLock, stateDir } from "./ledger.ts";
 import { runSession, sessionName, type SessionResult } from "./session.ts";
@@ -163,11 +163,23 @@ export interface EstimateOptions {
   env?: Record<string, string | undefined>;
 }
 
+export interface GpuChoice {
+  requested: string;
+  chosen: string;
+  candidates: { gpu: string; cu: number; totalSec: number }[];
+  fallback: { gpu: string; cu: number } | null;
+}
+
 export interface EstimateReport {
   ok: boolean;
   mode: "estimate" | "batch";
   film: string;
+  /** The GPU the estimate is for (the chosen one under `--gpu auto`). */
   gpu: string;
+  /** As given: `auto` (default), `L4`, `A100`, ... */
+  gpuRequested: string;
+  /** `--gpu auto` only: every auto GPU's estimate and the fallback, else null. */
+  gpuChoice: GpuChoice | null;
   nodes: { id: string; status: string; variant: string; width: number; height: number; frames: number; candidates: Candidate[] }[];
   skipped: Skipped[];
   jobsToGenerate: number;
@@ -184,6 +196,8 @@ interface Prepared {
   misses: EstimateJob[];
   cached: number;
   estimate: Breakdown;
+  /** `--gpu auto` only: what to open when `colab new` cannot get the chosen GPU (fits the budget), else null. */
+  fallback: Breakdown | null;
   gate: GateResult;
   report: EstimateReport;
 }
@@ -202,20 +216,37 @@ async function prepare(opts: EstimateOptions, mode: EstimateReport["mode"]): Pro
       else misses.push({ node: s.id, candidate: c.index, variant: s.variant, width: s.job.width, height: s.job.height, frames: s.frames });
     }
   }
-  const estimate = estimateCU(misses, loadEstimates(), { gpu: opts.gpu, rate: opts.rate });
+  const cfg = loadEstimates();
+  let estimate: Breakdown;
+  let gpuChoice: GpuChoice | null = null;
+  let fallback: Breakdown | null = null;
+  if (opts.gpu === GPU_AUTO) {
+    if (opts.rate !== undefined) {
+      throw new ColabComfyError(EXIT.invalidInput, [invalid("--rate applies to one GPU; it cannot be combined with --gpu auto", "rate", "pass an explicit --gpu (e.g. --gpu A100 --rate 5.3), or drop --rate")]);
+    }
+    const c = chooseGpu(misses, cfg, opts.budgetCU);
+    estimate = c.estimate;
+    fallback = c.fallback;
+    gpuChoice = { requested: GPU_AUTO, chosen: c.gpu, candidates: c.candidates, fallback: fallback ? { gpu: fallback.gpu, cu: fallback.cu } : null };
+  } else {
+    estimate = estimateCU(misses, cfg, { gpu: opts.gpu, rate: opts.rate });
+  }
   const gate = decide({
     jobs: misses.length,
     estimateCU: estimate.cu,
     budgetCU: opts.budgetCU,
     yes: opts.yes,
-    gpu: opts.gpu,
+    gpu: estimate.gpu,
     rateExplicit: opts.rate !== undefined,
+    calibrated: isCalibrated(cfg, estimate.gpu),
   });
   const report: EstimateReport = {
     ok: gate.decision === "proceed",
     mode,
     film: opts.film,
-    gpu: opts.gpu,
+    gpu: estimate.gpu,
+    gpuRequested: opts.gpu,
+    gpuChoice,
     nodes: selected.map((s) => ({ id: s.id, status: s.status, variant: s.variant, width: s.job.width, height: s.job.height, frames: s.frames, candidates: s.candidates })),
     skipped,
     jobsToGenerate: misses.length,
@@ -224,7 +255,7 @@ async function prepare(opts: EstimateOptions, mode: EstimateReport["mode"]): Pro
     estimate,
     gate,
   };
-  return { baseDir, selected, skipped, misses, cached, estimate, gate, report };
+  return { baseDir, selected, skipped, misses, cached, estimate, fallback, gate, report };
 }
 
 /** `batch --estimate`: no `colab` call of any kind. Exit 0, or 5 when confirmation would be needed. */
@@ -367,6 +398,9 @@ export interface GenerateOptions {
   gpu: string;
   budgetCU: number;
   estimate: Breakdown;
+  /** `--gpu auto`: opened instead when `colab new` cannot get `gpu`. */
+  fallback?: Breakdown | null;
+  gpuRequested?: string;
   maxWallSec?: number;
   /** Nodes with at least one uncached candidate; already past the gate. */
   nodes: SelectedNode[];
@@ -393,6 +427,10 @@ export async function generate(o: GenerateOptions): Promise<SessionResult> {
       budgetCU: o.budgetCU,
       estimateCU: o.estimate.cu,
       rateCuPerHour: o.estimate.rateCuPerHour,
+      estimateTotalSec: o.estimate.totalSec,
+      margin: o.estimate.margin,
+      gpuRequested: o.gpuRequested ?? o.gpu,
+      fallback: o.fallback ? { gpu: o.fallback.gpu, estimateCU: o.fallback.cu, rateCuPerHour: o.fallback.rateCuPerHour, totalSec: o.fallback.totalSec } : null,
       maxWallSec: o.maxWallSec,
       nodes: o.nodes,
       env: o.env,
@@ -439,7 +477,9 @@ export async function runBatch(opts: BatchOptions): Promise<{ report: BatchRepor
     filmName: meta.name,
     filmSha256: meta.sha256,
     session: opts.session,
-    gpu: opts.gpu,
+    gpu: p.estimate.gpu,
+    gpuRequested: opts.gpu,
+    fallback: p.fallback,
     budgetCU: opts.budgetCU,
     estimate: p.estimate,
     maxWallSec: opts.maxWallSec,
@@ -499,11 +539,15 @@ export function formatEstimate(r: EstimateReport): string {
     return lines.join("\n");
   }
   const e = r.estimate;
+  if (r.gpuChoice) {
+    const alts = r.gpuChoice.candidates.map((c) => `${c.gpu} ${c.cu.toFixed(2)} CU`).join(", ");
+    lines.push(`gpu auto -> ${r.gpuChoice.chosen} (${alts})${r.gpuChoice.fallback ? `; fallback if unavailable: ${r.gpuChoice.fallback.gpu} ${r.gpuChoice.fallback.cu.toFixed(2)} CU` : ""}`);
+  }
   lines.push(
     `estimate: ${e.cu.toFixed(2)} CU for ${r.jobsToGenerate} job(s) (${r.jobsCached} cached) on ${e.gpu} @ ${e.rateCuPerHour} CU/h (${e.rateSource}), margin ${e.margin}, budget ${r.budgetCU.toFixed(2)} CU`,
     `  fixed ${e.fixedSec.startup + e.fixedSec.firstLoad + e.fixedSec.teardown}s (startup ${e.fixedSec.startup} + first load ${e.fixedSec.firstLoad} + teardown ${e.fixedSec.teardown})`,
   );
-  for (const j of e.jobs) lines.push(`  ${j.node}#${j.candidate} ${j.variant}: generate ${j.genSec}s (scale ${j.scale}) + download ${j.downloadSec}s`);
+  for (const j of e.jobs) lines.push(`  ${j.node}#${j.candidate} ${j.variant}: generate ${j.genSec}s (init ${j.initSec} + scale ${j.scale}) + download ${j.downloadSec}s`);
   lines.push(`  total ${e.totalSec}s`);
   if (r.gate.decision === "proceed") lines.push("gate: proceed");
   else {

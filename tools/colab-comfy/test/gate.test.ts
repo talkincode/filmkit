@@ -21,6 +21,8 @@ describe("gate truth table (PLAN §6.3)", () => {
     ["non-L4 with --yes but no explicit rate", { gpu: "A100", yes: true }, "needs-confirmation", ["gpu-needs-rate"]],
     ["non-L4 with explicit rate but no --yes", { gpu: "A100", rateExplicit: true }, "needs-confirmation", ["gpu-needs-rate"]],
     ["non-L4 with --yes and --rate", { gpu: "A100", yes: true, rateExplicit: true }, "proceed", []],
+    ["calibrated non-L4 (A100) without --yes", { gpu: "A100", calibrated: true }, "needs-confirmation", ["gpu-needs-yes"]],
+    ["calibrated non-L4 (A100) with --yes, no --rate needed", { gpu: "A100", calibrated: true, yes: true }, "proceed", []],
     ["L4 with an explicit rate needs nothing more", { rateExplicit: true }, "proceed", []],
     ["nothing to generate is always fine", { jobs: 0, estimateCU: 0, gpu: "A100" }, "proceed", []],
   ];

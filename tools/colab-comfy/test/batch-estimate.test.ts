@@ -56,15 +56,20 @@ describe("batch --estimate on the EP03 example", () => {
     expect(JSON.parse(r.stdout.toString())).toMatchObject({ ok: true, nodes: 3 });
   }, 20_000);
 
-  test("3 jobs: frames 107/141/124 (5.0 s -> 124; shots.json's 141 was FL2VA), ~0.75 CU, needs confirmation (exit 5), no colab call", async () => {
+  test("3 jobs: frames 107/141/124 (5.0 s -> 124; shots.json's 141 was FL2VA), ~0.74 CU on L4 (auto), needs confirmation (exit 5), no colab call", async () => {
     const r = await estimate();
     expect(r.exitCode).toBe(5);
     const rep = r.report!;
     expect(rep.nodes.map((n) => [n.id, n.variant, n.frames])).toEqual([["s1a", "dense", 107], ["s3a", "vsa-0.75", 141], ["s4a", "vsa-0.5", 124]]);
     expect(rep.jobsToGenerate).toBe(3);
     expect(rep.jobsCached).toBe(0);
-    // 0.77 is the 141-frame s4a of PLAN §6.5 (see estimate.test.ts); this film's s4a is 124 frames
-    expect(Math.abs(rep.estimate.cu - 0.75)).toBeLessThanOrEqual(0.01);
+    // M8 calibration: 318 + 354 + 340 s per clip + 255 s fixed, x1.71 CU/h x1.2 margin (session was 0.51 CU)
+    expect(Math.abs(rep.estimate.cu - 0.74)).toBeLessThanOrEqual(0.01);
+    expect(rep.estimate.gpu).toBe("L4");
+    expect(rep.gpuRequested).toBe("auto");
+    expect(rep.gpuChoice!.chosen).toBe("L4");
+    expect(rep.gpuChoice!.candidates.map((c) => c.gpu)).toEqual(["L4", "A100"]);
+    expect(rep.gpuChoice!.fallback).toBeNull();
     expect(rep.gate.decision).toBe("needs-confirmation");
     expect(rep.gate.reasons.map((x) => x.code)).toEqual(["batch-needs-yes"]);
     expect(colabCalls()).toBe("");
@@ -91,17 +96,18 @@ describe("batch --estimate on the EP03 example", () => {
   test("text output lists the breakdown and the gate", async () => {
     const r = await main(["batch", "--estimate", "--filmkit", FILMKIT], {}, p.dir);
     expect(r.exitCode).toBe(5);
-    expect(r.stdout).toContain("estimate: 0.75 CU for 3 job(s)");
+    expect(r.stdout).toContain("estimate: 0.74 CU for 3 job(s)");
+    expect(r.stdout).toContain("gpu auto -> L4 (L4 0.74 CU, A100 0.89 CU)");
     expect(r.stdout).toContain("gate: needs confirmation (exit 5)");
     expect(r.stdout).toContain("s3a#0 vsa-0.75");
   }, 30_000);
 
-  test("--nodes s1a: one job, ~0.54 CU, proceeds without --yes", async () => {
+  test("--nodes s1a: one job, ~0.33 CU, proceeds without --yes", async () => {
     const r = await estimate("--nodes", "s1a");
     expect(r.exitCode).toBe(0);
     expect(r.report!.nodes.map((n) => n.id)).toEqual(["s1a"]);
-    expect(r.report!.estimate.cu).toBeGreaterThan(0.5);
-    expect(r.report!.estimate.cu).toBeLessThan(0.58);
+    expect(r.report!.estimate.cu).toBeGreaterThan(0.3);
+    expect(r.report!.estimate.cu).toBeLessThan(0.36);
   }, 30_000);
 
   test("a cache hit is skipped and lowers the estimate; all hits -> nothing to generate, 0 CU", async () => {
@@ -177,10 +183,34 @@ describe("batch --estimate on the EP03 example", () => {
     expect(JSON.parse(bad.stderr).errors[0].code).toBe("filmkit-plan-failed");
   }, 30_000);
 
-  test("non-L4 GPU without --rate: exit 2; with --rate but no --yes: exit 5", async () => {
-    expect((await estimate("--gpu", "A100")).exitCode).toBe(2);
-    const r = await estimate("--gpu", "A100", "--rate", "5");
+  test("uncalibrated GPU without --rate: exit 2; with --rate but no --yes: exit 5", async () => {
+    expect((await estimate("--gpu", "T4")).exitCode).toBe(2);
+    const r = await estimate("--gpu", "T4", "--rate", "1.2");
     expect(r.exitCode).toBe(5);
     expect(r.report!.gate.reasons.map((x) => x.code)).toContain("gpu-needs-rate");
+  }, 30_000);
+
+  test("explicit --gpu A100 (calibrated): estimated from its own table, needs --yes, no fallback", async () => {
+    const one = await estimate("--gpu", "a100", "--nodes", "s1a");
+    expect(one.exitCode).toBe(5);
+    expect(one.report!.gate.reasons.map((x) => x.code)).toEqual(["gpu-needs-yes"]);
+    expect(one.report!.estimate).toMatchObject({ gpu: "A100", rateCuPerHour: 5.3, timingGpu: "A100" });
+    expect(one.report!.gpuChoice).toBeNull();
+    const ok = await estimate("--gpu", "A100", "--nodes", "s1a", "--yes");
+    expect(ok.exitCode).toBe(0);
+    expect(ok.report!.estimate.cu).toBeLessThan(0.7); // the old table said ~1.8 CU
+    expect(colabCalls()).toBe("");
+  }, 30_000);
+
+  test("explicit --gpu L4 still works and is never switched", async () => {
+    const r = await estimate("--gpu", "L4", "--yes");
+    expect(r.exitCode).toBe(0);
+    expect(r.report!.estimate.gpu).toBe("L4");
+    expect(r.report!.gpuRequested).toBe("L4");
+    expect(r.report!.gpuChoice).toBeNull();
+  }, 30_000);
+
+  test("--gpu auto with --rate is invalid input (the rate belongs to one GPU)", async () => {
+    expect((await estimate("--rate", "2")).exitCode).toBe(2);
   }, 30_000);
 });
