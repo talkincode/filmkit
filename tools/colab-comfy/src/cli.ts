@@ -2,11 +2,17 @@
 // main() returns the result instead of exiting so tests can run it in-process.
 
 import { parseArgs } from "node:util";
-import { batchEstimate, formatEstimate } from "./batch.ts";
+import { batchEstimate, formatBatch, formatEstimate, runBatch } from "./batch.ts";
+import { Colab } from "./colab.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { DEFAULT_BUDGET_CU, DEFAULT_GPU } from "./gate.ts";
+import { runGuard } from "./guard.ts";
 import { jobFrames, normalizeJob, validateJob, variantKey } from "./job.ts";
+import { stateDir } from "./ledger.ts";
+import { formatReap, reap } from "./reap.ts";
+import { backoffFromEnv } from "./teardown.ts";
 import { loadTemplate } from "./workflow.ts";
+import { dirname, resolve } from "node:path";
 
 export interface CliResult {
   exitCode: number;
@@ -20,8 +26,13 @@ usage:
   colab-comfy validate <job flags> --out P --record R     offline checks; used by the Profile's validate
   colab-comfy batch --estimate [--film F] [--nodes a,b] [--gpu L4] [--rate CU_PER_H] [--budget CU] [--yes] [--filmkit "<cmd>"] [--json]
                                                           CU estimate + gate for every pending node; makes no colab call
+  colab-comfy batch [--film F] [--nodes a,b] [--yes] [--budget CU] [--gpu L4] [--rate CU_PER_H] [--max-wall SEC]
+                    [--session fk-NAME] [--filmkit "<cmd>"] [--no-materialize] [--json]
+                                                          one Colab session for every pending node; always stops and verifies it
+  colab-comfy reap [--film F] [--dry-run] [--json]        stop OUR leaked sessions (fk-* recorded in .colab-comfy/active.json); never others
+  colab-comfy guard --session NAME --parent-pid PID --deadline EPOCH --state DIR
+                                                          internal: detached watchdog started by batch
   colab-comfy materialize <job flags> --out P --record R  (not implemented yet)
-  colab-comfy batch [--yes ...]                           (session execution: not implemented yet)
 
 job flags: --node= --template= --prompt= --ref= [--ref2=] [--ref3=] --seed= --duration= --resolution=
            [--sparsity=] [--candidates=] [--pick=]
@@ -29,6 +40,9 @@ job flags: --node= --template= --prompt= --ref= [--ref2=] [--ref3=] --seed= --du
 common: --json  machine-readable output; errors as {"errors":[{code,message,field?,hint?}]} on stderr
 
 env:  COLAB_COMFY_BUDGET_CU   hard cap in CU (default ${DEFAULT_BUDGET_CU})
+      COLAB_COMFY_AUTH        passed as \`colab --auth <v>\` (default adc); COLAB_CLI_CONFIG as \`--config\`
+      COLAB_COMFY_POLL_SEC    seconds between polls (default 20); COLAB_COMFY_BACKOFF_MS stop/verify backoff
+      COLAB_COMFY_QUIET=1     no progress lines on stderr
       COLAB_COMFY_FILMKIT     how to run filmkit, e.g. "bun /path/bin/filmkit.ts" (default: filmkit)
 
 exit codes: 0 ok, 1 io, 2 invalid input, 3 missing dependency, 4 tool failure, 5 needs confirmation
@@ -54,6 +68,13 @@ const OPTIONS = {
   estimate: { type: "boolean", default: false },
   yes: { type: "boolean", default: false },
   budget: { type: "string" },
+  session: { type: "string" },
+  "max-wall": { type: "string" },
+  "no-materialize": { type: "boolean", default: false },
+  "dry-run": { type: "boolean", default: false },
+  "parent-pid": { type: "string" },
+  deadline: { type: "string" },
+  state: { type: "string" },
   gpu: { type: "string", default: DEFAULT_GPU },
   rate: { type: "string" },
   filmkit: { type: "string" },
@@ -69,9 +90,13 @@ interface Out {
   json: unknown;
   text: string;
   exitCode?: number;
+  /** Human-readable diagnostics for stderr (kept out of --json stdout). */
+  stderr?: string;
 }
 
-export async function main(argv: string[], env: Record<string, string | undefined> = process.env, cwd: string = process.cwd()): Promise<CliResult> {
+/** `env` entries override the process environment (they do not replace it: children still need PATH). */
+export async function main(argv: string[], envOverrides: Record<string, string | undefined> = {}, cwd: string = process.cwd()): Promise<CliResult> {
+  const env: Record<string, string | undefined> = { ...process.env, ...envOverrides };
   let parsed;
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS });
@@ -91,12 +116,18 @@ export async function main(argv: string[], env: Record<string, string | undefine
       case "batch":
         out = await batchCommand(v, env, cwd);
         break;
+      case "reap":
+        out = await reapCommand(v, env, cwd);
+        break;
+      case "guard":
+        out = await guardCommand(v, env);
+        break;
       case "materialize":
         throw notImplemented("materialize");
       default:
         return { exitCode: EXIT.invalidInput, stdout: "", stderr: `unknown command "${command}"\n\n${HELP}` };
     }
-    return { exitCode: out.exitCode ?? EXIT.ok, stdout: v.json ? JSON.stringify(out.json, null, 2) + "\n" : out.text + "\n", stderr: "" };
+    return { exitCode: out.exitCode ?? EXIT.ok, stdout: v.json ? JSON.stringify(out.json, null, 2) + "\n" : out.text + "\n", stderr: out.stderr ?? "" };
   } catch (err) {
     if (err instanceof ColabComfyError) {
       const stderr = v.json ? JSON.stringify({ errors: err.details }, null, 2) + "\n" : err.details.map(formatDetail).join("\n") + "\n";
@@ -112,7 +143,7 @@ function formatDetail(d: Detail): string {
 }
 
 function notImplemented(what: string): ColabComfyError {
-  return new ColabComfyError(EXIT.io, [{ code: "not-implemented", message: `${what} is not implemented in this build yet`, hint: "only validate and batch --estimate exist so far" }]);
+  return new ColabComfyError(EXIT.io, [{ code: "not-implemented", message: `${what} is not implemented in this build yet`, hint: "validate, batch, reap and guard exist so far" }]);
 }
 
 function validateCommand(v: Values, cwd: string): Out {
@@ -147,10 +178,21 @@ function parseNumberFlag(raw: string | undefined, name: string, fallback?: numbe
   return Number(raw);
 }
 
+const PLAIN_INT = /^\d+$/;
+
+function parseWallSec(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!PLAIN_INT.test(raw) || Number(raw) <= 0) throw new ColabComfyError(EXIT.invalidInput, [invalid(`--max-wall must be a positive integer (seconds), got "${raw}"`, "max-wall")]);
+  return Number(raw);
+}
+
+function progressLogger(env: Record<string, string | undefined>): (line: string) => void {
+  return env.COLAB_COMFY_QUIET ? () => {} : (line) => void process.stderr.write(`[colab-comfy] ${line}\n`);
+}
+
 async function batchCommand(v: Values, env: Record<string, string | undefined>, cwd: string): Promise<Out> {
-  if (!v.estimate) throw notImplemented("batch (session execution)");
   const budget = parseNumberFlag(v.budget ?? env.COLAB_COMFY_BUDGET_CU, "budget", DEFAULT_BUDGET_CU)!;
-  const { report, exitCode } = await batchEstimate({
+  const common = {
     cwd,
     film: v.film,
     nodes: v.nodes ? v.nodes.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
@@ -159,6 +201,48 @@ async function batchCommand(v: Values, env: Record<string, string | undefined>, 
     rate: parseNumberFlag(v.rate, "rate"),
     budgetCU: budget,
     yes: v.yes,
+    env,
+  };
+  if (v.estimate) {
+    const { report, exitCode } = await batchEstimate(common);
+    return { json: report, text: formatEstimate(report), exitCode };
+  }
+  const { report, exitCode, stderr } = await runBatch({
+    ...common,
+    session: v.session,
+    maxWallSec: parseWallSec(v["max-wall"]),
+    noMaterialize: v["no-materialize"],
+    log: progressLogger(env),
   });
-  return { json: report, text: formatEstimate(report), exitCode };
+  return { json: report, text: formatBatch(report), exitCode, stderr };
+}
+
+async function reapCommand(v: Values, env: Record<string, string | undefined>, cwd: string): Promise<Out> {
+  const baseDir = dirname(resolve(cwd, v.film));
+  const report = await reap({
+    stateDir: stateDir(baseDir),
+    colab: new Colab({ env }),
+    backoffMs: backoffFromEnv(env),
+    dryRun: v["dry-run"],
+    log: progressLogger(env),
+  });
+  return { json: report, text: formatReap(report), exitCode: report.ok ? EXIT.ok : EXIT.toolFailure };
+}
+
+async function guardCommand(v: Values, env: Record<string, string | undefined>): Promise<Out> {
+  const problems: Detail[] = [];
+  const need = (k: "session" | "parent-pid" | "deadline" | "state") => {
+    if (v[k] === undefined) problems.push(invalid(`--${k} is required`, k));
+  };
+  need("session");
+  need("parent-pid");
+  need("deadline");
+  need("state");
+  const parent = Number(v["parent-pid"]);
+  const deadline = Number(v.deadline);
+  if (v["parent-pid"] !== undefined && !(Number.isInteger(parent) && parent > 0)) problems.push(invalid("--parent-pid must be a positive integer", "parent-pid"));
+  if (v.deadline !== undefined && !Number.isFinite(deadline)) problems.push(invalid("--deadline must be epoch seconds", "deadline"));
+  if (problems.length) throw new ColabComfyError(EXIT.invalidInput, problems);
+  const r = await runGuard({ session: v.session!, parentPid: parent, deadline, stateDir: v.state!, env, log: progressLogger(env) });
+  return { json: r, text: `guard exit: ${r.reason}`, exitCode: r.exitCode };
 }

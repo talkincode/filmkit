@@ -183,6 +183,7 @@ export class Colab {
   private readonly env: Record<string, string | undefined>;
   private readonly timeouts: Record<keyof typeof DEFAULT_TIMEOUTS_MS, number>;
   private readonly onCall?: (e: CallLogEntry) => void;
+  private readonly inFlight = new Set<ReturnType<typeof Bun.spawn>>();
 
   constructor(opts: ColabOptions = {}) {
     const env = opts.env ?? process.env;
@@ -207,6 +208,7 @@ export class Colab {
         { code: "missing-dependency", message: `cannot run "${this.bin}": ${redact((err as Error).message)}`, hint: "install the colab CLI and put it on PATH" },
       ]);
     }
+    this.inFlight.add(proc);
     const buf = { out: "", err: "" };
     const pump = async (s: ReadableStream<Uint8Array>, k: "out" | "err") => {
       const dec = new TextDecoder();
@@ -223,6 +225,7 @@ export class Colab {
       killTimer = setTimeout(() => proc.kill("SIGKILL"), 2000);
     }, timeoutMs);
     const code = await proc.exited;
+    this.inFlight.delete(proc);
     clearTimeout(timer);
     if (killTimer) clearTimeout(killTimer);
     // A grandchild may keep the pipes open after the client died: never wait on them for long.
@@ -237,6 +240,15 @@ export class Colab {
     };
     this.onCall?.({ args: argv.slice(1), code: result.code, timedOut, ms: Date.now() - t0, stdout: result.stdout, stderr: result.stderr });
     return result;
+  }
+
+  /**
+   * Kill every `colab` client currently running (signal handling, PLAN §6.4: a pending `new`/`exec`
+   * must not delay STOP). The affected calls return not-ok. Killing an `exec` client wedges that
+   * session's next exec (F2), which is irrelevant because the next call is `stop`.
+   */
+  abortInFlight(): void {
+    for (const p of this.inFlight) p.kill("SIGTERM");
   }
 
   /** run() + raise on failure, for read-only queries whose output we must parse. */
