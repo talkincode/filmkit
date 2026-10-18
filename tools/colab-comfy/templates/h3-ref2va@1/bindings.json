@@ -1,0 +1,51 @@
+{
+  "template": "h3-ref2va@1",
+  "fps": 24,
+  "variants": {
+    "dense": "dense.api.json",
+    "vsa": "vsa.api.json"
+  },
+  "bind": {
+    "prompt": [
+      "6",
+      "prompt"
+    ],
+    "width": [
+      "6",
+      "width"
+    ],
+    "height": [
+      "6",
+      "height"
+    ],
+    "frames": [
+      "6",
+      "length"
+    ],
+    "seed": [
+      "8",
+      "noise_seed"
+    ],
+    "sparsity": [
+      "144",
+      "sparsity"
+    ],
+    "outputPrefix": [
+      "16",
+      "filename_prefix"
+    ]
+  },
+  "refs": {
+    "loadNode": "50",
+    "target": "6",
+    "inputPattern": "ref_images.ref_image_{i}",
+    "indexBase": 0,
+    "max": 3
+  },
+  "requiredClasses": [
+    "MiniMaxH3ReferenceToVideo",
+    "Ref2VAVSAGatePatch",
+    "MiniMaxH3SigmaShift",
+    "SaveVideo"
+  ]
+}

@@ -1,0 +1,76 @@
+# EP03 pipeline test (PLAN §5.2): three scenes through the colab-comfy profile.
+# Place ./profiles/colab-comfy.yaml (copy from the repo's profiles/) and the three
+# reference stills ./refs/ff_yM.png, ./refs/ff_bM.png, ./refs/ff_bC.png next to this file.
+# Prompts below are fixture text written by hand; neither filmkit nor the helper writes prompts.
+apiVersion: filmkit/v1alpha1
+kind: Film
+metadata: { name: ep03-h3-test, title: "EP03 · H3 Ref2VA pipeline test (s1a/s3a/s4a)" }
+profiles:
+  - ref: filmkit/static
+  - ref: ./profiles/colab-comfy.yaml
+output:
+  container: mp4
+  video: { width: 704, height: 1280, fps: 24, codec: h264 }
+  audio: { codec: aac, sampleRate: 48000, channels: 2 }
+scenes:
+  - id: s1a # shots.json: ["s1a","1",0,4.05,"yM",107]
+    duration: 4.05
+    durationPolicy: exact
+    impl:
+      profile: colab-comfy
+      task: h3-ref2va
+      params:
+        template: h3-ref2va@1
+        prompt: >-
+          Vertical medium shot, waist up, slight handheld sway. The same adult woman from <Picture 1>, face, hair and
+          earrings exactly as in the picture, stands on a yacht deck at golden-hour sunset with warm backlight and softly
+          rolling sea behind her. She looks straight into the camera and speaks in a relaxed, witty tone, expressive but
+          restrained, small natural hand gestures. Magazine-quality realistic cinematic look. Only her voice, no music,
+          no on-screen text.
+        ref: ./refs/ff_yM.png
+        seed: 20261017
+        duration: 4.05
+        resolution: 704x1280
+        sparsity: 0
+    produces: { video: ./build/h3/s1a.mp4, file: ./build/h3/s1a.colab.json }
+  - id: s3a # ["s3a","3a",0,5.28,"bM",141]
+    duration: 5.28
+    durationPolicy: exact
+    impl:
+      profile: colab-comfy
+      task: h3-ref2va
+      params:
+        template: h3-ref2va@1
+        prompt: >-
+          Vertical medium shot, waist up, slight handheld sway. The same adult woman from <Picture 1>, face, hair and
+          earrings exactly as in the picture, stands in shallow water at the beach, waves gently rolling and sunlight
+          glittering on the water behind her. She looks straight into the camera and speaks in a relaxed, witty tone,
+          expressive but restrained, small natural hand gestures. Magazine-quality realistic cinematic look. Only her
+          voice, no music, no on-screen text.
+        ref: ./refs/ff_bM.png
+        seed: 20261017
+        duration: 5.28
+        resolution: 704x1280
+        sparsity: 0.75
+    produces: { video: ./build/h3/s3a.mp4, file: ./build/h3/s3a.colab.json }
+  # shots.json lists 141 frames for s4a (EP03 FL2VA was audio-driven); Ref2VA frames come from the duration alone:
+  # 5.0 s -> 124 frames, so this film estimates ~0.75 CU (the 141-frame shape gives 0.77).
+  - id: s4a # ["s4a","4",0,5.0,"bC",141]
+    duration: 5.0
+    durationPolicy: exact
+    impl:
+      profile: colab-comfy
+      task: h3-ref2va
+      params:
+        template: h3-ref2va@1
+        prompt: >-
+          Vertical close-up, chest up, slight handheld sway, shallow depth of field. The same adult woman from
+          <Picture 1>, face, hair and earrings exactly as in the picture, stands in shallow water at the beach, soft
+          sunlit waves behind her. She looks straight into the camera and speaks in a relaxed, witty tone, expressive but
+          restrained. Magazine-quality realistic cinematic look. Only her voice, no music, no on-screen text.
+        ref: ./refs/ff_bC.png
+        seed: 20261017
+        duration: 5.0
+        resolution: 704x1280
+        sparsity: 0.5
+    produces: { video: ./build/h3/s4a.mp4, file: ./build/h3/s4a.colab.json }

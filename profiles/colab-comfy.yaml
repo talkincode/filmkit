@@ -1,0 +1,133 @@
+# Ready-to-use Profile: ComfyUI API workflows on a Google Colab GPU (L4 default).
+# First template: MiniMax H3 Ref2VA (reference image(s) + prompt -> video with audio),
+# optional VSA sparsity gate.
+#
+# Two-phase by design (filmkit runs one node at a time; a Colab session costs
+# ~8 min of setup, so it is shared by a batch):
+#   1. colab-comfy batch --film filmkit.yaml [--yes] [--budget CU]
+#        one Colab session for every pending colab-comfy node; CU estimate and
+#        hard budget gate first; guaranteed `colab stop` + `colab sessions` check.
+#        Clips land in ./.colab-comfy/cache (gitignore it).
+#   2. filmkit run <id>   (batch does this for you)
+#        `colab-comfy materialize`: local copy cache -> produces + run record. Free.
+#        On a cache miss it refuses (exit 5 -> invalid-input) unless
+#        COLAB_COMFY_YES=1, which runs a batch of one under the same budget gate.
+#
+# Credentials: Google ADC on the host (`colab --auth adc`). filmkit never sees
+# them; the helper never prints them.
+#
+#   scenes:
+#     - id: s1a
+#       duration: 4.05
+#       durationPolicy: exact          # the model's frame grid rounds up; trim to the cut
+#       impl:
+#         profile: colab-comfy
+#         task: h3-ref2va
+#         params:
+#           template: h3-ref2va@1
+#           prompt: "The woman from <Picture 1> … talks to the camera …"
+#           ref: ./refs/ff_yM.png
+#           seed: 20261017              # literal integer (not ${vars.x}: vars become strings)
+#           duration: 4.05
+#           resolution: 704x1280
+#           sparsity: 0.75              # 0 = dense (default), 0.5 / 0.75 = VSA gate
+#       produces:
+#         video: ./build/h3/s1a.mp4
+#         file: ./build/h3/s1a.colab.json   # run record: seed, hashes, versions, GPU, CU
+#
+# Candidates: set `candidates: 3`; batch renders seeds seed..seed+2; review the
+# printed cache paths; set `pick: <index>`; `filmkit run` copies the winner (no CU).
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: colab-comfy
+  version: "0.1"
+  description: ComfyUI API workflows on a Google Colab GPU, batched per session (MiniMax H3 Ref2VA + optional VSA gate).
+runtime:
+  type: cli
+  binary: colab-comfy
+  requires:
+    binaries: [colab]
+  healthcheck: ["colab-comfy", "doctor", "--json"]
+  healthcheckExpect: { path: ready, equals: true }
+  exitCodes: { "0": ok, "1": io, "2": invalid-input, "3": missing-dependency, "4": tool-failure, "5": invalid-input }
+capabilities:
+  produces: [video, file]
+  consumes: [image]
+tasks:
+  h3-ref2va:
+    description: MiniMax H3 Ref2VA on Colab; filmkit run materializes from the batch cache.
+    produces: [video, file]
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [template, prompt, ref, seed, duration, resolution]
+      properties:
+        template:
+          enum: [h3-ref2va@1]
+          description: Versioned template + pinned model manifest. Bump to re-render under new pins.
+        prompt:
+          type: string
+          minLength: 1
+          description: Written by the agent. Refer to refs as <Picture 1>, <Picture 2>, <Picture 3>.
+        ref:   { type: string, pattern: "^\\.\\.?/", description: "Reference image 1 (film-relative)." }
+        ref2:  { type: string, pattern: "^\\.\\.?/", description: "Optional reference image 2." }
+        ref3:  { type: string, pattern: "^\\.\\.?/", description: "Optional reference image 3." }
+        seed:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        duration:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 6.6
+          description: Seconds at 24 fps; rounded UP to the model's valid frame count (recorded).
+        resolution:
+          enum: ["1344x768", "768x1344", "1280x704", "704x1280"]
+        sparsity:
+          enum: [0, 0.5, 0.75]
+          description: 0 = dense template; 0.5 / 0.75 = VSA gate template with that sparsity. Default 0.
+        candidates:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: Render seeds seed..seed+N-1 in the batch. Default 1.
+        pick:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: Winning candidate index; required by materialize when candidates > 1.
+    validate:
+      - colab-comfy
+      - validate
+      - "--node=${node.id}"
+      - "--template=${params.template}"
+      - "--prompt=${params.prompt}"
+      - "--ref=${params.ref}"
+      - "--ref2=${params.ref2?}"
+      - "--ref3=${params.ref3?}"
+      - "--seed=${params.seed}"
+      - "--duration=${params.duration}"
+      - "--resolution=${params.resolution}"
+      - "--sparsity=${params.sparsity?}"
+      - "--candidates=${params.candidates?}"
+      - "--pick=${params.pick?}"
+      - "--out=${produces.video}"
+      - "--record=${produces.file}"
+    invocation:
+      - colab-comfy
+      - materialize
+      - "--node=${node.id}"
+      - "--template=${params.template}"
+      - "--prompt=${params.prompt}"
+      - "--ref=${params.ref}"
+      - "--ref2=${params.ref2?}"
+      - "--ref3=${params.ref3?}"
+      - "--seed=${params.seed}"
+      - "--duration=${params.duration}"
+      - "--resolution=${params.resolution}"
+      - "--sparsity=${params.sparsity?}"
+      - "--candidates=${params.candidates?}"
+      - "--pick=${params.pick?}"
+      - "--out=${produces.video}"
+      - "--record=${produces.file}"

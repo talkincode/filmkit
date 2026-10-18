@@ -9,7 +9,7 @@
 
 import { execFileSync } from "node:child_process";
 
-const tracked = ["src", "bin", "scripts", "profiles", "skills", "tests", "docs"];
+const tracked = ["src", "bin", "scripts", "profiles", "skills", "tests", "docs", "tools"];
 
 function git(args: string[]): string {
   return execFileSync("git", args, { encoding: "utf8" }).trim();

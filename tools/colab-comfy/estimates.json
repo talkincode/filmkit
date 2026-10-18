@@ -1,0 +1,12 @@
+{
+  "schema": "colab-comfy/estimates@1",
+  "startupSec": 480,
+  "firstLoadSec": 120,
+  "teardownSec": 120,
+  "downloadSecPerJob": 10,
+  "warmSecAtRef": { "dense": 260, "vsa-0.75": 190, "vsa-0.5": 220 },
+  "reference": { "width": 1344, "height": 768, "frames": 124 },
+  "scaleExponent": 1.0,
+  "rateCuPerHour": { "L4": 1.7 },
+  "margin": 1.2
+}
