@@ -6,6 +6,8 @@ changing the protocol.
 
 ## Unreleased
 
+## 0.4.0 — colab-comfy: batched H3 Ref2VA on Colab GPUs with a hard CU budget
+
 - **`colab-comfy` profile + helper (no change to `src/`).** `profiles/colab-comfy.yaml`
   (`h3-ref2va`: MiniMax H3 Ref2VA with an optional VSA sparsity gate) runs fixed ComfyUI
   API workflows on a Google Colab GPU. Because a Colab session is expensive to open, batching,
@@ -22,6 +24,31 @@ changing the protocol.
   `--yes`). Roadmap feature 26; operating rules and the verified `colab` 0.7.4 CLI surface in
   `tools/colab-comfy/README.md`. Repo plumbing: `tools/` added to `tsconfig.json`,
   `package.json` `files` and `check:tracked`.
+- **`colab-comfy`: GPU choice, real-rate budget guard, settled cost (since the first cut above).**
+  `--gpu auto` is the new default: it estimates **L4** and **A100** only (never H100, never
+  high-mem) and opens the cheaper one (ties → L4; A100 wins from ~5–6 portrait clips); an explicit
+  `--gpu L4` / `--gpu A100` is honoured as given, A100 needs `--yes`, and `--rate` with `auto` is
+  refused. If the A100 is unavailable at `colab new`, the helper falls back to L4 only when the L4
+  estimate also fits `--budget` and `colab sessions` shows nothing left over (logged, recorded as
+  `gpuFallback`; still exactly one session). Right after `new`, the live `Usage rate` from
+  `colab usage` re-projects the estimate (abort before upload if it no longer fits) and moves the
+  deadline, which the detached guard re-reads from `active.json`. After the verified stop the
+  balance is polled until it settles (two equal, plausible readings; 30 s interval, 210 s max);
+  otherwise the actual CU is recorded as provisional (`usageSettled: false` in the session result,
+  ledger, clip cost and run record).
+- **`colab-comfy`: calibrated estimates (`estimates.json` → `colab-comfy/estimates@2`).** Per-GPU
+  rate, startup, first load, per-clip init, warm time per variant and teardown, fitted to real
+  runs; the 1.2 safety margin stays. L4 1.71 CU/h (EP03 3 clips ≈ 0.74 CU), A100 5.30 CU/h (one
+  clip ≈ 0.63 CU instead of the old ~1.8). Uncalibrated GPUs use the L4 timings and need `--rate`
+  plus `--yes`.
+- **`colab-comfy`: validated on real Colab hardware.** M8 real run (EP03 test film, L4, 3/3 clips
+  704×1280, estimate 0.75 → actual 0.51 CU, stop verified by an independent `colab sessions`, re-run
+  free and lock byte-identical) and a one-shot A100-SXM4-40GB benchmark (0.60 CU settled). Fixes from
+  it: the `hf` CLI is resolved next to `sys.executable`, e2e `colab` calls get a host timeout, the
+  fake `colab` kills the VM runner on stop (flaky E3/E5), Python bytecode is never committed.
+- **Skill: plan a publishing cover.** When a video is prepared for publication, the filmkit skill
+  now plans a separate platform cover/thumbnail (`assets.cover`), distinct from an opening title
+  card; `build` does not create it, and delivery is not publish-ready without it.
 
 ## 0.3.0 — storyboard review sheet, knowledge-video batch, ffmpeg 8+ builds
 
