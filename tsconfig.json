@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["bun-types"]
   },
-  "include": ["src", "bin", "tests", "scripts"]
+  "include": ["src", "bin", "tests", "scripts", "tools"]
 }

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Test shim: put this directory first on PATH and `colab` is the fake (see ../fake-colab.ts).
+exec "${FAKE_COLAB_BUN:-bun}" "$(dirname "$0")/../fake-colab.ts" "$@"

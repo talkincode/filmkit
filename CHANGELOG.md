@@ -6,6 +6,23 @@ changing the protocol.
 
 ## Unreleased
 
+- **`colab-comfy` profile + helper (no change to `src/`).** `profiles/colab-comfy.yaml`
+  (`h3-ref2va`: MiniMax H3 Ref2VA with an optional VSA sparsity gate) runs fixed ComfyUI
+  API workflows on a Google Colab GPU. Because a Colab session is expensive to open, batching,
+  sessions and cost live in a standalone helper, `tools/colab-comfy/` (Bun/TypeScript + a
+  stdlib-only Python payload for the VM), and filmkit still only runs one node at a time:
+  `colab-comfy batch` estimates CU, applies a hard budget gate (`--yes`, `--budget`), runs
+  **one** session for every pending node, downloads each clip into `.colab-comfy/cache`,
+  always stops and verifies the session (four layers: `finally`/signals, detached guard, VM
+  watchdog, `reap`), then `filmkit run <id>` materializes each node from the cache for free and
+  writes the lock. `produces.file` carries a deterministic run record (seed, hashes, pinned
+  ComfyUI/node commits and weight revisions, GPU, CU). Also `colab-comfy doctor` (the Profile's
+  healthcheck), `cache ls|prune`, and `reap`. Tested against a fake `colab` shim and a mock
+  ComfyUI; `scripts/e2e-colab-comfy.sh` is the real run (spends ~0.8 CU, refuses without
+  `--yes`). Roadmap feature 26; operating rules and the verified `colab` 0.7.4 CLI surface in
+  `tools/colab-comfy/README.md`. Repo plumbing: `tools/` added to `tsconfig.json`,
+  `package.json` `files` and `check:tracked`.
+
 ## 0.3.0 — storyboard review sheet, knowledge-video batch, ffmpeg 8+ builds
 
 - **构建传图改走内联 `-filter_complex`。** ffmpeg 8+ 移除了 `-filter_complex_script`，三处组 argv（场景片段、垫片、合成）改传内联 filtergraph；执行走 argv 数组，无 shell 转义问题。`build/*.filter` 文件与 `compose.filtergraph.txt` 照常写出，前者现为纯调试产物。确定性、原子落位与退出码契约不变。
