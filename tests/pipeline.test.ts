@@ -171,7 +171,7 @@ describe("build", () => {
     expect(r.out!.warnings[0]).toMatch(/subtitle cue in intro at 1.5s runs past 2.5s and was clipped/);
     // Filtergraph is written and mentions every stage.
     const fg = readFileSync(p.path("build/compose.filtergraph.txt"), "utf8");
-    for (const s of ["xfade=transition=fade:duration=0.4:offset=2.1", "acrossfade", "-stream_loop -1", "overlay=main_w-overlay_w-", "amix=inputs=2", "concat=n=2"]) expect(fg).toContain(s);
+    for (const s of ["settb=AVTB", "xfade=transition=fade:duration=0.4:offset=2.1", "acrossfade", "-stream_loop -1", "overlay=main_w-overlay_w-", "amix=inputs=2", "concat=n=2"]) expect(fg).toContain(s);
     // Lock records the build.
     const lock = readFileSync(p.path("filmkit.lock.yaml"), "utf8");
     expect(lock).toMatch(/build:\n\s+filmSha256: [0-9a-f]{64}\n\s+output:\n\s+path: \.\/build\/t\.mp4/);

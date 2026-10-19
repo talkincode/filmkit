@@ -49,7 +49,11 @@ export function planCompose(
     const outV = `[mv${i}]`;
     const outA = `[ma${i}]`;
     if (seg.xfade > 0) {
-      filters.push(`${curV}${nextV}xfade=transition=fade:duration=${num(seg.xfade)}:offset=${num(length - seg.xfade)}${outV}`);
+      // concat outputs AV_TIME_BASE (1/1000000) while file inputs carry their own
+      // timebase (mkv 1/1000); xfade refuses mismatched timebases, so normalise both.
+      filters.push(`${curV}settb=AVTB[xa${i}]`);
+      filters.push(`${nextV}settb=AVTB[xb${i}]`);
+      filters.push(`[xa${i}][xb${i}]xfade=transition=fade:duration=${num(seg.xfade)}:offset=${num(length - seg.xfade)}${outV}`);
       filters.push(`${curA}${nextA}acrossfade=d=${num(seg.xfade)}:c1=tri:c2=tri${outA}`);
       length = length + seg.duration - seg.xfade;
     } else {
