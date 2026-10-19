@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { ColabComfyError } from "../src/errors.ts";
-import { MAX_DURATION, RESOLUTIONS, jobFrames, normalizeJob, sniffImage, validateJob, variantKey } from "../src/job.ts";
-import { framesFor } from "../src/workflow.ts";
-import { fakePng, makeJob, tmpProject, tpl } from "./support.ts";
+import { MAX_DURATION, RESOLUTIONS, jobFrames, normalizeJob, resolveInputs, sniffImage, validateJob, variantKey, wavDurationSec } from "../src/job.ts";
+import { framesFor, TEMPLATE_NAMES } from "../src/workflow.ts";
+import { fakePng, fakeWav, makeJob, tmpProject, tpl, tpl2 } from "./support.ts";
 
 const LENGTH = { min: 5, max: 3600, step: 17 };
 
@@ -59,9 +59,10 @@ describe("normalizeJob", () => {
     expect(makeJob({ resolution: "1024x768" })).toMatchObject({ resolution: "1024x768", width: 1024, height: 768 });
   });
 
-  test("RESOLUTIONS is exactly the Profile's resolution enum (one list, two places)", () => {
+  test("RESOLUTIONS / TEMPLATE_NAMES are exactly the Profile's enums (one list, two places)", () => {
     const profile = parseYaml(readFileSync(join(import.meta.dir, "..", "..", "..", "profiles", "colab-comfy.yaml"), "utf8"));
     expect(profile.tasks["h3-ref2va"].paramsSchema.properties.resolution.enum).toEqual([...RESOLUTIONS]);
+    expect(profile.tasks["h3-ref2va"].paramsSchema.properties.template.enum).toEqual([...TEMPLATE_NAMES]);
   });
 
   test("defaults: sparsity 0, candidates 1, no pick", () => {
@@ -101,6 +102,24 @@ describe("normalizeJob", () => {
   }
 });
 
+describe("wavDurationSec (header only)", () => {
+  test("PCM mono 24 kHz / stereo 48 kHz: data bytes / byte rate", () => {
+    expect(wavDurationSec(fakeWav(3.56))).toBeCloseTo(3.56, 6);
+    expect(wavDurationSec(fakeWav(1.04, "", 48000, 2))).toBeCloseTo(1.04, 6);
+  });
+  test("skips extra chunks before data (LIST etc.)", () => {
+    const w = fakeWav(2);
+    const list = Buffer.concat([Buffer.from("LIST"), Buffer.from([4, 0, 0, 0]), Buffer.from("INFO")]);
+    const withList = Buffer.concat([w.subarray(0, 36), list, w.subarray(36)]);
+    expect(wavDurationSec(withList)).toBeCloseTo(2, 6);
+  });
+  test("not a WAV / no data chunk -> undefined", () => {
+    expect(wavDurationSec(fakePng("x"))).toBeUndefined();
+    expect(wavDurationSec(Buffer.from("RIFF\0\0\0\0WAVE"))).toBeUndefined();
+    expect(wavDurationSec(fakeWav(1).subarray(0, 36))).toBeUndefined();
+  });
+});
+
 describe("sniffImage", () => {
   test("PNG, JPEG, WebP by magic bytes; others undefined", () => {
     expect(sniffImage(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]))).toBe("png");
@@ -120,10 +139,16 @@ describe("validateJob (offline)", () => {
     p.write("refs/a.png", fakePng("a"));
     p.write("refs/b.png", fakePng("b"));
     p.write("refs/notes.txt", "hello");
+    p.write("vo/s1a.wav", fakeWav(3.56, "vo"));
+    p.write("vo/exact.wav", fakeWav(107 / 24, "exact"));
+    p.write("vo/long.wav", fakeWav(4.6, "long"));
+    p.write("vo/empty.wav", fakeWav(0));
   });
   afterAll(() => cleanup());
   const check = (over: Record<string, unknown> = {}, ctx: { out?: string; record?: string } = {}) =>
     validateJob(makeJob(over), { baseDir: dir, tpl, ...ctx });
+  /** Same, on h3-ref2va@2 (the template with the audio guide). */
+  const check2 = (over: Record<string, unknown> = {}) => validateJob(makeJob({ template: "h3-ref2va@2", ...over }), { baseDir: dir, tpl: tpl2 });
 
   test("a good job has no problems", () => expect(check({}, { out: "./o.mp4", record: "./o.json" })).toEqual([]));
   test("missing pick is NOT an error even with candidates > 1", () => expect(check({ candidates: 3 })).toEqual([]));
@@ -145,6 +170,31 @@ describe("validateJob (offline)", () => {
       expect(check({ resolution, duration: MAX_DURATION })).toEqual([]);
       expect(jobFrames(makeJob({ resolution, duration: MAX_DURATION }), tpl)).toBe(175);
     }
+  });
+  test("audio guide: a WAV no longer than the clip is fine (107 f = 4.458 s at 4.05 s duration)", () => {
+    expect(check2({ audio: "./vo/s1a.wav" })).toEqual([]);
+    expect(check2({ audio: "./vo/exact.wav" })).toEqual([]);
+    expect(check2()).toEqual([]);
+    expect(makeJob({ audio: "./vo/s1a.wav" }).audio).toBe("./vo/s1a.wav");
+    expect(makeJob().audio).toBeUndefined();
+  });
+  test("audio guide failures carry field audio", () => {
+    // @1 is frozen without the guide: refused with a pointer to @2, not silently ignored
+    expect(check({ audio: "./vo/s1a.wav" })[0]).toMatchObject({ field: "audio", hint: expect.stringContaining("h3-ref2va@2") });
+    expect(check2({ audio: "./vo/nope.wav" })[0]).toMatchObject({ field: "audio", message: expect.stringContaining("not found") });
+    expect(check2({ audio: "./refs/notes.txt" })[0]).toMatchObject({ field: "audio", message: expect.stringContaining("RIFF/WAVE") });
+    expect(check2({ audio: "./vo/empty.wav" })[0]).toMatchObject({ field: "audio" });
+    const long = check2({ audio: "./vo/long.wav" });
+    expect(long[0]).toMatchObject({ field: "audio", message: expect.stringContaining("would be cropped") });
+    expect(check2({ audio: "./vo/long.wav", duration: 4.6 })).toEqual([]); // 4.6 s -> 124 f = 5.167 s covers it
+  });
+  test("resolveInputs hashes the audio and reads its duration", () => {
+    const inputs = resolveInputs(makeJob({ audio: "./vo/s1a.wav" }), dir);
+    expect(inputs.audio).toMatchObject({ path: "./vo/s1a.wav", ext: "wav" });
+    expect(inputs.audio!.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(inputs.audio!.durationSec).toBeCloseTo(3.56, 6);
+    expect(resolveInputs(makeJob(), dir).audio).toBeUndefined();
+    expect(() => resolveInputs(makeJob({ audio: "./vo/nope.wav" }), dir)).toThrow(ColabComfyError);
   });
   test("--out / --record extensions", () => {
     expect(check({}, { out: "./o.mov", record: "./o.json" }).map((d) => d.field)).toEqual(["out"]);

@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { main } from "../src/cli.ts";
-import { fakePng, tmpProject } from "./support.ts";
+import { fakePng, fakeWav, tmpProject } from "./support.ts";
 
 let p: ReturnType<typeof tmpProject>;
 beforeAll(() => {
@@ -13,6 +13,8 @@ beforeAll(() => {
   p.write("refs/b.jpg", Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]));
   p.write("refs/c.webp", Buffer.from("RIFF\0\0\0\0WEBPVP8 "));
   p.write("refs/doc.txt", "not an image");
+  p.write("vo/s1a.wav", fakeWav(3.56, "vo"));
+  p.write("vo/long.wav", fakeWav(5, "long"));
 });
 afterAll(() => p.cleanup());
 
@@ -58,6 +60,14 @@ describe("colab-comfy validate", () => {
     expect(landscape.stdout.trim()).toBe("ok: s1a dense 1024x768 107f, 1 ref(s), 1 candidate(s)");
   });
 
+  test("--audio: summary names the guide; --json carries the path", async () => {
+    const r = await call({ template: "h3-ref2va@2", audio: "./vo/s1a.wav" });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe("ok: s1a dense 704x1280 107f, 1 ref(s), audio guide, 1 candidate(s)");
+    expect(JSON.parse((await call({ template: "h3-ref2va@2", audio: "./vo/s1a.wav" }, ["--json"])).stdout)).toMatchObject({ ok: true, template: "h3-ref2va@2", audio: "./vo/s1a.wav" });
+    expect(JSON.parse((await call({}, ["--json"])).stdout).audio).toBeNull();
+  });
+
   test("sparsity 0 as the string filmkit passes it", async () => expect((await call({ sparsity: "0" })).exitCode).toBe(0));
 
   test("png + jpeg + webp refs are accepted", async () => {
@@ -81,6 +91,10 @@ describe("colab-comfy validate", () => {
     ["--record missing", { record: undefined }, "record"],
     ["bad resolution", { resolution: "640x360" }, "resolution"],
     ["bad sparsity", { sparsity: "0.6" }, "sparsity"],
+    ["audio longer than the clip", { template: "h3-ref2va@2", audio: "./vo/long.wav" }, "audio"],
+    ["audio is not a WAV", { template: "h3-ref2va@2", audio: "./refs/doc.txt" }, "audio"],
+    ["audio missing", { template: "h3-ref2va@2", audio: "./vo/nope.wav" }, "audio"],
+    ["audio on the frozen @1 template", { audio: "./vo/s1a.wav" }, "audio"],
     ["non-numeric seed", { seed: "abc" }, "seed"],
     ["unknown template", { template: "nope@1" }, "template"],
   ];

@@ -1,0 +1,119 @@
+{
+  "schema": "colab-comfy/object-info-snapshot@1",
+  "source": {
+    "comfyui": {
+      "repo": "https://github.com/Comfy-Org/ComfyUI",
+      "commit": "ce1e922d8623bb507180e32a0c01a7d0e29edef7"
+    },
+    "customNodes": [
+      {
+        "repo": "https://github.com/Kablex/ComfyUI-Ref2VA-VSA",
+        "commit": "323a0a5f7c636cc70f95464145732f81f04a72e9"
+      }
+    ],
+    "note": "Constraints read from source at the pinned commits (M0 F9); not a full /object_info dump."
+  },
+  "classes": {
+    "MiniMaxH3ReferenceToVideo": {
+      "inputs": {
+        "width": {
+          "type": "INT",
+          "min": 32,
+          "step": 32
+        },
+        "height": {
+          "type": "INT",
+          "min": 32,
+          "step": 32
+        },
+        "length": {
+          "type": "INT",
+          "min": 5,
+          "max": 3600,
+          "step": 17
+        },
+        "ref_image_size": {
+          "type": "COMBO",
+          "options": [
+            "match",
+            "max"
+          ]
+        },
+        "ref_images": {
+          "type": "AUTOGROW",
+          "prefix": "ref_image_",
+          "indexBase": 0,
+          "max": 9
+        }
+      }
+    },
+    "Ref2VAVSAGatePatch": {
+      "inputs": {
+        "sparsity": {
+          "type": "FLOAT",
+          "min": 0,
+          "max": 0.98,
+          "step": 0.01
+        }
+      }
+    },
+    "SaveVideo": {
+      "inputs": {},
+      "output": {
+        "historyPath": "outputs[*].images[*]",
+        "match": {
+          "metadata.kind": "video"
+        }
+      }
+    },
+    "MiniMaxH3AddGuide": {
+      "source": "comfy_extras/nodes_minimax_h3.py:166",
+      "inputs": {
+        "positive": {
+          "type": "CONDITIONING"
+        },
+        "vae": {
+          "type": "VAE",
+          "optional": true
+        },
+        "audio_vae": {
+          "type": "VAE",
+          "optional": true
+        },
+        "latent": {
+          "type": "LATENT"
+        },
+        "image": {
+          "type": "IMAGE",
+          "optional": true
+        },
+        "audio": {
+          "type": "AUDIO",
+          "optional": true
+        },
+        "frame_idx": {
+          "type": "INT",
+          "default": 0,
+          "min": -9999,
+          "max": 9999
+        }
+      },
+      "outputs": [
+        "CONDITIONING"
+      ],
+      "notes": "audio is resampled to the audio VAE rate, encoded, cropped to the video's remaining duration from frame_idx, and appended to minimax_keyframes as clean audio-latent rows"
+    },
+    "LoadAudio": {
+      "source": "comfy_extras/nodes_audio.py:398",
+      "inputs": {
+        "audio": {
+          "type": "COMBO",
+          "note": "file name in ComfyUI/input"
+        }
+      },
+      "outputs": [
+        "AUDIO"
+      ]
+    }
+  }
+}

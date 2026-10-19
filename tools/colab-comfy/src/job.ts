@@ -6,7 +6,7 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } fro
 import { resolve } from "node:path";
 import { sha256Hex } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
-import { framesFor, type BindInput, type ResolvedRef, type Template, variantFor } from "./workflow.ts";
+import { framesFor, type BindInput, type ResolvedAudio, type ResolvedInputs, type ResolvedRef, type Template, variantFor } from "./workflow.ts";
 
 /** Must equal the `resolution` enum in profiles/colab-comfy.yaml (guarded by test/job.test.ts). */
 export const RESOLUTIONS = ["1344x768", "768x1344", "1280x704", "704x1280", "1024x768", "768x1024"] as const;
@@ -22,6 +22,8 @@ export interface Job {
   prompt: string;
   /** Film-relative paths, ref .. ref3 in order. */
   refs: string[];
+  /** Film-relative WAV fed to MiniMaxH3AddGuide at frame 0 (lip-sync guide). Absent: image + prompt only. */
+  audio?: string;
   seed: number;
   duration: number;
   resolution: string;
@@ -64,6 +66,7 @@ export function normalizeJob(raw: Raw): Job {
   const prompt = str("prompt", true);
   const refs = [str("ref", true), str("ref2", false), str("ref3", false)];
   if (refs[1] === undefined && refs[2] !== undefined) problems.push(invalid("ref3 given without ref2", "ref3"));
+  const audio = str("audio", false);
   const seed = raw.seed === undefined ? (problems.push(invalid("seed is required", "seed")), undefined) : num(raw.seed, "seed", problems, { integer: true });
   if (seed !== undefined && (seed < 0 || seed > Number.MAX_SAFE_INTEGER)) problems.push(invalid("seed must be in 0..9007199254740991", "seed"));
   const duration =
@@ -94,6 +97,7 @@ export function normalizeJob(raw: Raw): Job {
     template: template!,
     prompt: prompt!,
     refs: refs.filter((r): r is string => r !== undefined),
+    ...(audio !== undefined ? { audio } : {}),
     seed: seed!,
     duration: duration!,
     resolution: resolution!,
@@ -134,18 +138,59 @@ function checkRef(baseDir: string, ref: string, field: string): Detail | Resolve
   return kind;
 }
 
-/** Content-hash the refs for binding / cache keys. Throws with the same messages validateJob reports. */
-export function resolveRefs(job: Job, baseDir: string): ResolvedRef[] {
+/**
+ * Duration of a RIFF/WAVE file from its header (data chunk bytes / fmt byte rate); undefined when the
+ * bytes are not a WAV filmkit can read. Only the header is parsed: no audio is decoded or processed.
+ */
+export function wavDurationSec(bytes: Uint8Array): number | undefined {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const tag = (at: number) => String.fromCharCode(...bytes.subarray(at, at + 4));
+  if (bytes.length < 12 || tag(0) !== "RIFF" || tag(8) !== "WAVE") return undefined;
+  let byteRate: number | undefined;
+  let dataBytes: number | undefined;
+  for (let at = 12; at + 8 <= bytes.length; ) {
+    const id = tag(at);
+    const size = view.getUint32(at + 4, true);
+    if (id === "fmt " && at + 16 <= bytes.length) byteRate = view.getUint32(at + 16, true);
+    if (id === "data") {
+      // 0xFFFFFFFF / overlong: a streamed header; the data runs to the end of the file.
+      dataBytes = Math.min(size, bytes.length - (at + 8));
+      break;
+    }
+    at += 8 + size + (size % 2);
+  }
+  if (!byteRate || dataBytes === undefined) return undefined;
+  return dataBytes / byteRate;
+}
+
+/** Existence + WAV header check for the audio guide; returns a problem or the duration in seconds. */
+function checkAudio(baseDir: string, audio: string): Detail | number {
+  const abs = resolve(baseDir, audio);
+  if (!existsSync(abs) || !statSync(abs).isFile()) return invalid(`audio file not found: ${audio}`, "audio");
+  const sec = wavDurationSec(readFileSync(abs));
+  if (sec === undefined) return invalid(`audio is not a readable RIFF/WAVE file (header): ${audio}`, "audio", "export the voice-over segment as .wav");
+  if (!(sec > 0)) return invalid(`audio has no samples: ${audio}`, "audio");
+  return sec;
+}
+
+/** Content-hash refs and audio for binding / cache keys. Throws with the same messages validateJob reports. */
+export function resolveInputs(job: Job, baseDir: string): ResolvedInputs {
   const problems: Detail[] = [];
-  const out: ResolvedRef[] = [];
+  const refs: ResolvedRef[] = [];
   job.refs.forEach((path, i) => {
     const field = i === 0 ? "ref" : `ref${i + 1}`;
     const kind = checkRef(baseDir, path, field);
     if (typeof kind !== "string") return void problems.push(kind);
-    out.push({ path, sha256: sha256Hex(readFileSync(resolve(baseDir, path))), ext: kind });
+    refs.push({ path, sha256: sha256Hex(readFileSync(resolve(baseDir, path))), ext: kind });
   });
+  let audio: ResolvedAudio | undefined;
+  if (job.audio !== undefined) {
+    const sec = checkAudio(baseDir, job.audio);
+    if (typeof sec !== "number") problems.push(sec);
+    else audio = { path: job.audio, sha256: sha256Hex(readFileSync(resolve(baseDir, job.audio))), ext: "wav", durationSec: sec };
+  }
   if (problems.length) throw new ColabComfyError(EXIT.invalidInput, problems);
-  return out;
+  return audio ? { refs, audio } : { refs };
 }
 
 export function jobFrames(job: Job, tpl: Template): number {
@@ -184,6 +229,26 @@ export function validateJob(job: Job, ctx: ValidateContext): Detail[] {
     const k = Number(m[1]);
     if (k < 1 || k > job.refs.length) {
       problems.push(invalid(`prompt mentions <Picture ${k}> but only ${job.refs.length} ref(s) are given`, "prompt"));
+    }
+  }
+
+  if (job.audio !== undefined && !tpl.bindings.audioGuide) {
+    problems.push(invalid(`template ${tpl.name} has no audio guide`, "audio", "use template h3-ref2va@2 (same models, plus the MiniMaxH3AddGuide lip-sync guide)"));
+  } else if (job.audio !== undefined) {
+    const sec = checkAudio(ctx.baseDir, job.audio);
+    if (typeof sec !== "number") problems.push(sec);
+    else {
+      // MiniMaxH3AddGuide crops audio that runs past the clip: the end of the line would silently lose its guide.
+      const clipSec = jobFrames(job, tpl) / tpl.bindings.fps;
+      if (sec > clipSec + 1e-3) {
+        problems.push(
+          invalid(
+            `audio is ${sec.toFixed(3)}s but the clip is ${jobFrames(job, tpl)} frames (${clipSec.toFixed(3)}s); the guide would be cropped`,
+            "audio",
+            "raise duration to cover the audio, or cut the audio to the clip",
+          ),
+        );
+      }
     }
   }
 

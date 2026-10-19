@@ -5,16 +5,16 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join } from "node:path";
 import { canonicalJson, sha256Hex } from "./canonical.ts";
 import { bindInput, type Job } from "./job.ts";
-import { bindWorkflow, type ResolvedRef, type Template, type Bound } from "./workflow.ts";
+import { bindWorkflow, type ResolvedInputs, type Template, type Bound } from "./workflow.ts";
 
 export const PROTOCOL = "colab-comfy/v1";
 export const STATE_DIR = ".colab-comfy";
 
 /**
  * key = sha256(canonical{protocol, manifestSha256, templateFileSha256, workflow}).
- * The workflow already carries content-hashed ref filenames and the constant
+ * The workflow already carries content-hashed ref and audio filenames and the constant
  * output prefix, so `pick`, `candidates` (for candidate 0), the GPU and the node
- * id never enter the key; prompt/seed/frames/resolution/sparsity/ref bytes do.
+ * id never enter the key; prompt/seed/frames/resolution/sparsity/ref bytes/audio bytes do.
  */
 export function cacheKey(tpl: Template, bound: Bound): string {
   return sha256Hex(
@@ -31,13 +31,13 @@ export function cacheKey(tpl: Template, bound: Bound): string {
  * The one function batch and materialize both use, so their keys cannot diverge (PLAN §8.1 U*).
  * `workflowSha256` hashes the bound workflow (the exact ComfyUI API JSON, refs content-hashed) for run records.
  */
-export function jobKeyInfo(tpl: Template, job: Job, candidate: number, refs: ResolvedRef[]): { key: string; workflowSha256: string; variant: Bound["variant"]; templateFileSha256: string } {
-  const bound = bindWorkflow(tpl, bindInput(job, tpl), candidate, refs);
+export function jobKeyInfo(tpl: Template, job: Job, candidate: number, inputs: ResolvedInputs): { key: string; workflowSha256: string; variant: Bound["variant"]; templateFileSha256: string } {
+  const bound = bindWorkflow(tpl, bindInput(job, tpl), candidate, inputs);
   return { key: cacheKey(tpl, bound), workflowSha256: sha256Hex(canonicalJson(bound.workflow)), variant: bound.variant, templateFileSha256: bound.templateFileSha256 };
 }
 
-export function jobCacheKey(tpl: Template, job: Job, candidate: number, refs: ResolvedRef[]): string {
-  return jobKeyInfo(tpl, job, candidate, refs).key;
+export function jobCacheKey(tpl: Template, job: Job, candidate: number, inputs: ResolvedInputs): string {
+  return jobKeyInfo(tpl, job, candidate, inputs).key;
 }
 
 export interface CachePaths {

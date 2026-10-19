@@ -16,7 +16,7 @@ import type { SelectedNode } from "./batch.ts";
 import { cacheKey, PROTOCOL } from "./cache.ts";
 import { sha256Hex } from "./canonical.ts";
 import { ColabComfyError, EXIT } from "./errors.ts";
-import { bindInput, resolveRefs } from "./job.ts";
+import { bindInput, resolveInputs } from "./job.ts";
 import { bindWorkflow, type Manifest, type WorkflowJson } from "./workflow.ts";
 
 export const VM_DIR = join(import.meta.dir, "..", "vm");
@@ -62,7 +62,7 @@ export interface JobsDoc {
 
 export interface BuiltJobs {
   doc: JobsDoc;
-  /** bundle member name (`<sha>.<ext>`) -> absolute path of the reference image on the host. */
+  /** bundle member name (`<sha>.<ext>`) -> absolute path of the reference image / audio guide on the host. */
   inputs: Map<string, string>;
 }
 
@@ -83,14 +83,15 @@ export function buildJobsDoc(opts: BuildJobsOptions): BuiltJobs {
     ]);
   }
   const jobs: JobEntry[] = [];
-  const inputs = new Map<string, string>();
+  const bundled = new Map<string, string>();
   const seenKeys = new Set<string>();
   for (const n of opts.nodes) {
     const tpl = n.template;
-    const refs = resolveRefs(n.job, opts.baseDir);
+    const inputs = resolveInputs(n.job, opts.baseDir);
+    const files = [...inputs.refs, ...(inputs.audio ? [inputs.audio] : [])];
     for (const c of n.candidates) {
       if (c.cached) continue;
-      const bound = bindWorkflow(tpl, bindInput(n.job, tpl), c.index, refs);
+      const bound = bindWorkflow(tpl, bindInput(n.job, tpl), c.index, inputs);
       const key = cacheKey(tpl, bound);
       if (key !== c.key) {
         throw new ColabComfyError(EXIT.toolFailure, [
@@ -99,7 +100,7 @@ export function buildJobsDoc(opts: BuildJobsOptions): BuiltJobs {
       }
       if (seenKeys.has(key)) continue; // identical content under two nodes: generate once, materialize twice
       seenKeys.add(key);
-      for (const r of refs) inputs.set(`${r.sha256}.${r.ext}`, resolve(opts.baseDir, r.path));
+      for (const f of files) bundled.set(`${f.sha256}.${f.ext}`, resolve(opts.baseDir, f.path));
       jobs.push({
         key,
         node: n.id,
@@ -109,7 +110,7 @@ export function buildJobsDoc(opts: BuildJobsOptions): BuiltJobs {
         width: n.job.width,
         height: n.job.height,
         variant: n.variant,
-        inputs: refs.map((r) => ({ file: `${r.sha256}.${r.ext}`, sha256: r.sha256 })),
+        inputs: files.map((f) => ({ file: `${f.sha256}.${f.ext}`, sha256: f.sha256 })),
         workflow: bound.workflow,
       });
     }
@@ -123,11 +124,12 @@ export function buildJobsDoc(opts: BuildJobsOptions): BuiltJobs {
     session: opts.session,
     manifest: tpl.manifest,
     manifestSha256: tpl.manifestSha256,
-    requiredClasses: [...tpl.bindings.requiredClasses],
+    // LoadAudio + MiniMaxH3AddGuide are checked on the VM only when some job uses them.
+    requiredClasses: [...tpl.bindings.requiredClasses, ...(tpl.bindings.audioGuide && jobs.some((j) => j.workflow[tpl.bindings.audioGuide!.guideNode]) ? tpl.bindings.audioGuide.requiredClasses : [])],
     limits: { ...DEFAULT_LIMITS, ...opts.limits },
     jobs,
   };
-  return { doc, inputs };
+  return { doc, inputs: bundled };
 }
 
 export interface WriteBundleOptions {
