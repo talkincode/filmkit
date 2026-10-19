@@ -1,0 +1,51 @@
+{
+  "comment": "Everything the VM installs or downloads, pinned. Hashes from the HF tree API (LFS oid = sha256) and from a box download of buffalo_l.zip on 2026-10-19.",
+  "uv": "0.13.0",
+  "python": "3.10.13",
+  "latentsync": {
+    "repo": "https://github.com/bytedance/LatentSync",
+    "commit": "a229c3948406bc2cf6eaf4873e662e70c6a04746",
+    "note": "repo has no tags/releases; HEAD of main (2025-06-20), code for model 1.6 (README 2025/06/11)"
+  },
+  "unetConfig": "configs/unet/stage2_512.yaml",
+  "files": [
+    {
+      "dest": "checkpoints/latentsync_unet.pt",
+      "url": "https://huggingface.co/ByteDance/LatentSync-1.6/resolve/c42c7e6c8e9c213626389fa7d9a3c444b8536353/latentsync_unet.pt",
+      "sha256": "0a478e89eb660f82da4c35dbdde8a5adfb27f99d1b4e50edd03729e1e98316d3",
+      "bytes": 5072222488
+    },
+    {
+      "dest": "checkpoints/whisper/tiny.pt",
+      "url": "https://huggingface.co/ByteDance/LatentSync-1.6/resolve/c42c7e6c8e9c213626389fa7d9a3c444b8536353/whisper/tiny.pt",
+      "sha256": "65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9",
+      "bytes": 75572083
+    },
+    {
+      "dest": "checkpoints/sd-vae-ft-mse/diffusion_pytorch_model.safetensors",
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/31f26fdeee1355a5c34592e401dd41e45d25a493/diffusion_pytorch_model.safetensors",
+      "sha256": "a1d993488569e928462932c8c38a0760b874d166399b14414135bd9c42df5815",
+      "bytes": 334643276
+    },
+    {
+      "dest": "checkpoints/sd-vae-ft-mse/config.json",
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/31f26fdeee1355a5c34592e401dd41e45d25a493/config.json",
+      "sha256": "92d3dfb746fca211a2c9e019e285f8597412211728dce3c5bcf4eda0f2d62e7e",
+      "bytes": 547
+    },
+    {
+      "dest": "checkpoints/auxiliary/models/buffalo_l.zip",
+      "url": "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
+      "sha256": "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f",
+      "bytes": 288621354,
+      "unzipTo": "checkpoints/auxiliary/models/buffalo_l"
+    }
+  ],
+  "inference": {
+    "inference_steps": 20,
+    "guidance_scale": 1.5,
+    "enable_deepcache": true,
+    "seed": 1247,
+    "source": "inference.sh @ a229c39 (steps 20, guidance 1.5, --enable_deepcache); seed = scripts/inference.py default"
+  }
+}
