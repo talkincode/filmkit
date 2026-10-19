@@ -6,6 +6,11 @@ changing the protocol.
 
 ## Unreleased
 
+- **`colab-comfy`: 3:4 / 4:3 sizes.** `h3-ref2va` now also accepts `resolution: 768x1024` and
+  `1024x768` (Profile enum and `RESOLUTIONS` in `tools/colab-comfy/src/job.ts`; a test keeps the two
+  lists identical). Both fit the pixel·frame cap at every allowed duration; CU is estimated with the
+  existing pixel-proportional formula (EP04 13 clips at 768×1024: A100 1.85 dense / 1.74 VSA 0.75).
+
 ## 0.4.0 — colab-comfy: batched H3 Ref2VA on Colab GPUs with a hard CU budget
 
 - **`colab-comfy` profile + helper (no change to `src/`).** `profiles/colab-comfy.yaml`

@@ -8,7 +8,8 @@ import { sha256Hex } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { framesFor, type BindInput, type ResolvedRef, type Template, variantFor } from "./workflow.ts";
 
-export const RESOLUTIONS = ["1344x768", "768x1344", "1280x704", "704x1280"] as const;
+/** Must equal the `resolution` enum in profiles/colab-comfy.yaml (guarded by test/job.test.ts). */
+export const RESOLUTIONS = ["1344x768", "768x1344", "1280x704", "704x1280", "1024x768", "768x1024"] as const;
 export const SPARSITIES = [0, 0.5, 0.75] as const;
 export const MAX_DURATION = 6.6;
 export const MAX_CANDIDATES = 4;
