@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cacheHit, cachePaths, jobCacheKey, writeFileAtomic } from "../src/cache.ts";
-import { resolveRefs } from "../src/job.ts";
+import { resolveInputs } from "../src/job.ts";
 import { existsSync, readFileSync } from "node:fs";
-import { fakePng, makeJob, tmpProject, tpl } from "./support.ts";
+import { fakePng, fakeWav, makeJob, tmpProject, tpl, tpl2 } from "./support.ts";
 
 let p: ReturnType<typeof tmpProject>;
 beforeAll(() => {
@@ -11,12 +11,15 @@ beforeAll(() => {
   p.write("refs/a-renamed.png", fakePng("a")); // same bytes, different path
   p.write("refs/a2.png", fakePng("a-but-different")); // different bytes
   p.write("refs/b.png", fakePng("b"));
+  p.write("vo/s1a.wav", fakeWav(3.56, "vo-a"));
+  p.write("vo/s1a-copy.wav", fakeWav(3.56, "vo-a")); // same bytes, different path
+  p.write("vo/s1a-retake.wav", fakeWav(3.56, "vo-b")); // same length, different bytes
 });
 afterAll(() => p.cleanup());
 
 function key(over: Record<string, unknown> = {}, candidate = 0, template = tpl): string {
   const job = makeJob(over);
-  return jobCacheKey(template, job, candidate, resolveRefs(job, p.dir));
+  return jobCacheKey(template, job, candidate, resolveInputs(job, p.dir));
 }
 
 describe("cache key (PLAN §6.1)", () => {
@@ -55,6 +58,17 @@ describe("cache key (PLAN §6.1)", () => {
   test("all single-field changes give pairwise distinct keys", () => {
     const keys = new Set([base, ...changes.map(([, o]) => key(o))]);
     expect(keys.size).toBe(changes.length + 1);
+  });
+
+  test("audio guide (@2): the key follows the audio bytes, not its path", () => {
+    const k2 = (over: Record<string, unknown> = {}) => key({ template: "h3-ref2va@2", ...over }, 0, tpl2);
+    const plain2 = k2();
+    expect(plain2).not.toBe(base); // @2 has its own manifest: its clips never collide with @1's
+    const withVo = k2({ audio: "./vo/s1a.wav" });
+    expect(withVo).not.toBe(plain2);
+    expect(k2({ audio: "./vo/s1a-copy.wav" })).toBe(withVo);
+    expect(k2({ audio: "./vo/s1a-retake.wav" })).not.toBe(withVo); // re-recorded VO -> re-render
+    expect(k2({ audio: "./vo/s1a-retake.wav" })).not.toBe(plain2);
   });
 
   test("candidate i has the key of the same job with seed + i", () => {

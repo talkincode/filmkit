@@ -134,6 +134,29 @@
               }
             }
           }
+        },
+        "audio": {
+          "type": "object",
+          "description": "Lip-sync guide fed to MiniMaxH3AddGuide (absent: none).",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "durationSec"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "durationSec": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         }
       }
     },

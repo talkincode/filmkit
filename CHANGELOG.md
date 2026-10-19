@@ -6,6 +6,18 @@ changing the protocol.
 
 ## Unreleased
 
+- **`colab-comfy`: template `h3-ref2va@2` with an audio guide for lip sync (`params.audio`).**
+  @2 is @1 (same workflows, models, pins; @1 stays frozen and refuses `audio`) plus an
+  `audioGuide` binding. A `h3-ref2va@2` scene can declare a
+  film-relative WAV (its voice-over segment); the helper uploads it and wires
+  `LoadAudio → MiniMaxH3AddGuide (frame_idx 0) → BasicGuider` into the H3 Ref2VA workflow, as
+  李律 EP01 did with fl2va, so the mouth follows the real VO instead of only image + prompt.
+  `validate` checks the RIFF/WAVE header and refuses audio longer than the generated clip; the
+  audio bytes are in the cache key (and filmkit marks the node stale when the WAV changes); the run
+  record carries `params.audio`. @1 jobs bind exactly as before (cache keys unchanged).
+  Estimate: guided jobs' warm time × 1.03 (`estimates.json` `audioGuide`, derived from token count,
+  uncalibrated). Not yet run on real hardware.
+
 - **`colab-comfy`: 3:4 / 4:3 sizes.** `h3-ref2va` now also accepts `resolution: 768x1024` and
   `1024x768` (Profile enum and `RESOLUTIONS` in `tools/colab-comfy/src/job.ts`; a test keeps the two
   lists identical). Both fit the pixel·frame cap at every allowed duration; CU is estimated with the

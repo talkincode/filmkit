@@ -6,6 +6,11 @@
   "downloadSecPerJob": 10,
   "margin": 1.2,
   "autoGpus": ["L4", "A100"],
+  "audioGuide": {
+    "warmFactor": 1.03,
+    "calibrated": false,
+    "basis": "not measured. MiniMaxH3AddGuide adds clean audio-latent rows (2 per 40 Hz audio frame, at most the clip length) to the packed sequence: ~1.4% more tokens at 768x1024 (e.g. 107 f: 24576 video + 768 ref + ~356 target-audio rows, +<=356 guide rows), so <= ~3% more attention+MLP work per step; the audio VAE encode of a few seconds is negligible. Recalibrate from ledger.jsonl after the first guided run."
+  },
   "gpus": {
     "L4": {
       "rateCuPerHour": 1.71,

@@ -14,7 +14,7 @@ import { Colab, isReleasing } from "../src/colab.ts";
 import { ColabComfyError } from "../src/errors.ts";
 import { fakeColabEnv, sessionContent } from "./fake-colab.ts";
 import { makeSampleMp4, startMockComfy } from "./mock-comfy.ts";
-import { BASE_JOB, fakePng, tmpProject } from "./support.ts";
+import { BASE_JOB, fakePng, fakeWav, tmpProject } from "./support.ts";
 
 const hasPython = Bun.which("python3") !== null;
 const sha = (b: Uint8Array | string) => createHash("sha256").update(b).digest("hex");
@@ -37,8 +37,25 @@ describe("buildJobsDoc / writeBundle", () => {
     proj = tmpProject();
     proj.write("refs/a.png", fakePng("a"));
     proj.write("refs/b.png", fakePng("b"));
+    proj.write("vo/s0.wav", fakeWav(3.5, "vo0"));
   });
   afterAll(() => proj.cleanup());
+
+  test("an audio-guided job bundles its WAV and makes the VM check LoadAudio + MiniMaxH3AddGuide", () => {
+    const P2 = { ...P, template: "h3-ref2va@2" };
+    const { selected } = collectJobs(plan([{ ...P2, audio: "./vo/s0.wav" }, { ...P2, ref: "./refs/b.png" }]), proj.dir);
+    const { doc, inputs } = buildJobsDoc({ session: "fk-t", nodes: selected, baseDir: proj.dir });
+    const wav = `${sha(fakeWav(3.5, "vo0"))}.wav`;
+    expect([...inputs.keys()]).toContain(wav);
+    expect(doc.jobs[0]!.inputs.map((i) => i.file)).toEqual([`${sha(fakePng("a"))}.png`, wav]);
+    expect(doc.jobs[0]!.workflow["60"]).toEqual({ class_type: "LoadAudio", inputs: { audio: wav } });
+    expect(doc.jobs[1]!.inputs.map((i) => i.file)).toEqual([`${sha(fakePng("b"))}.png`]);
+    expect(doc.jobs[1]!.workflow["60"]).toBeUndefined();
+    expect(doc.requiredClasses).toEqual([...selected[0]!.template.bindings.requiredClasses, "LoadAudio", "MiniMaxH3AddGuide"]);
+    // no audio anywhere: the VM is not asked for the guide classes
+    const plainOnly = buildJobsDoc({ session: "fk-t", nodes: collectJobs(plan([P2]), proj.dir).selected, baseDir: proj.dir });
+    expect(plainOnly.doc.requiredClasses).not.toContain("MiniMaxH3AddGuide");
+  });
 
   test("jobs.json carries top-level requiredClasses from bindings.json, manifest, limits and one entry per candidate", () => {
     const { selected } = collectJobs(plan([{ ...P, candidates: 2 }, { ...P, ref: "./refs/b.png", sparsity: 0.75 }]), proj.dir);

@@ -47,8 +47,50 @@ filmkit plan ──► colab-comfy batch ──► filmkit run <id> (×N) ──
    replay guard); `COLAB_COMFY_YES=1 filmkit run <id>` instead runs a batch of one under the same budget gate.
 
 Re-running costs nothing: ready nodes never appear in `plan`, and the cache key is a hash of the resolved workflow, so a
-node that did not change is never regenerated. Changing the prompt, seed, duration, resolution, sparsity or a
-reference image makes the key (and the node) stale; changing only `pick` re-materializes for free.
+node that did not change is never regenerated. Changing the prompt, seed, duration, resolution, sparsity, a
+reference image or the audio guide's bytes makes the key (and the node) stale; changing only `pick` re-materializes for free.
+
+### Audio guide (lip sync)
+
+Without audio, H3 Ref2VA invents both the soundtrack and the mouth motion from the image and the prompt; once filmkit
+replaces that soundtrack with the real voice-over, the lips no longer match it (EP004: per-clip lip/VO correlation
+-0.13 … 0.49). Declare the voice-over segment as `params.audio` on template **`h3-ref2va@2`** and the helper feeds it
+into the model:
+
+```yaml
+      params:
+        template: h3-ref2va@2       # @1 is frozen without the guide and refuses `audio`
+        prompt: "…"
+        ref: ./media/look/master_final.png
+        seed: 20261019
+        duration: 3.86              # generated length: frames = 5+17k >= duration*24
+        resolution: 768x1024
+        audio: ./media/vo/h3/s01a.wav   # the VO this clip speaks, starting at its first frame
+```
+
+- **Template `h3-ref2va@2`** = @1 with the same workflows, models and pins plus the `audioGuide` binding (released
+  templates are immutable, see `test/immutability.test.ts`). @2 without `audio` binds the identical workflow, but its
+  manifest names @2, so moving a scene from @1 to @2 is a new cache key (one re-render). One session runs one
+  template, so a batch with both @1 and @2 scenes needs two sessions; move a whole film to @2.
+- **Wiring** (bindings.json `audioGuide`, the same as 李律 EP01 used with fl2va): `LoadAudio(<sha256>.wav)` →
+  `MiniMaxH3AddGuide(positive = MiniMaxH3ReferenceToVideo.0, latent = .1, audio_vae = the H3 audio VAE, frame_idx 0)` →
+  `BasicGuider.conditioning`. The sampler still starts from the reference node's empty AV latent. Both nodes are core
+  ComfyUI at the pinned commit (`comfy_extras/nodes_minimax_h3.py`, `nodes_audio.py`); the VM checks them via
+  `/object_info` only in sessions that have a guided job. The node resamples to the audio VAE rate itself, so any WAV
+  sample rate / channel count works (EP01: 24 kHz and 48 kHz mono s16le).
+- **Length:** the guide starts at frame 0 and the node crops anything past the clip, so `validate` refuses audio longer
+  than `frames / 24` s (field `audio`). Shorter is fine: the rest of the clip is unguided, which is what
+  `durationPolicy: exact` trims away anyway. EP01 padded each segment with silence to exactly `frames / 24`; colab-comfy
+  does no audio processing, so pad the WAV yourself if you want closed lips over the tail.
+- **Opt-in, explicit:** it is a param, not `produces.audio` picked up implicitly, so no existing film changes. filmkit
+  content-hashes `./` param paths, so a re-recorded VO makes the node `stale`; the cache key contains the audio bytes
+  (content-hashed filename in the workflow), so it re-renders. @1 scenes keep their workflow and every existing cache
+  key. The run record carries `params.audio { path, sha256, durationSec }`.
+- **Not verified on hardware yet.** The code path exists in the pinned ComfyUI for Ref2VA (`minimax_keyframes` audio rows
+  are packed alongside the `minimax_refs` blocks), but EP01 used it with the fl2va checkpoint; whether the ref2va
+  checkpoint follows the guide as well is only known after the first real run.
+- **Cost:** `estimates.json` `audioGuide.warmFactor` (1.03, `calibrated: false`) multiplies the warm time of guided jobs;
+  it is derived from the extra packed rows (~1.4% more tokens at 768×1024), not measured.
 
 ### Candidates
 

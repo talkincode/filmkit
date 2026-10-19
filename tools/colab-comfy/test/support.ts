@@ -4,7 +4,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { normalizeJob, resolveRefs, type Job } from "../src/job.ts";
+import { normalizeJob, resolveInputs, type Job } from "../src/job.ts";
 import { loadTemplate, type ResolvedRef, type Template } from "../src/workflow.ts";
 
 export const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -29,6 +29,8 @@ export function fakePng(tag: string): Buffer {
 }
 
 export const tpl: Template = loadTemplate("h3-ref2va@1");
+/** @1 + the audioGuide binding (lip sync). */
+export const tpl2: Template = loadTemplate("h3-ref2va@2");
 
 export const BASE_JOB = {
   node: "s1a",
@@ -46,5 +48,30 @@ export function makeJob(over: Record<string, unknown> = {}): Job {
 
 /** Project with refs a/b/c.png already written; returns refs resolved for `job`. */
 export function refsFor(dir: string, job: Job): ResolvedRef[] {
-  return resolveRefs(job, dir);
+  return resolveInputs(job, dir).refs;
+}
+
+/**
+ * A real PCM RIFF/WAVE file (16-bit, `rate` Hz, `channels`) of `seconds` of samples; `tag` makes the bytes unique.
+ * Same shape as the EP04 VO segments (24 kHz mono s16le).
+ */
+export function fakeWav(seconds: number, tag = "", rate = 24000, channels = 1): Buffer {
+  const frames = Math.round(seconds * rate);
+  const data = Buffer.alloc(frames * channels * 2);
+  Buffer.from(tag).copy(data); // a few non-silent bytes; enough to change the hash
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write("WAVE", 8);
+  h.write("fmt ", 12);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20); // PCM
+  h.writeUInt16LE(channels, 22);
+  h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * channels * 2, 28); // byte rate
+  h.writeUInt16LE(channels * 2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(data.length, 40);
+  return Buffer.concat([h, data]);
 }

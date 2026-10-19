@@ -1,0 +1,201 @@
+{
+ "1": {
+  "inputs": {
+   "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+   "weight_dtype": "default"
+  },
+  "class_type": "UNETLoader"
+ },
+ "2": {
+  "inputs": {
+   "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+   "type": "minimax",
+   "device": "default"
+  },
+  "class_type": "CLIPLoader"
+ },
+ "4": {
+  "inputs": {
+   "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+  },
+  "class_type": "VAELoader"
+ },
+ "5": {
+  "inputs": {
+   "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+  },
+  "class_type": "VAELoader"
+ },
+ "6": {
+  "inputs": {
+   "prompt": "The red-haired girl from <Picture 1>, with brass goggles pushed up on her head and freckles, sits at a small wooden table in a sunny cafe. She slowly turns her head toward the camera and gives a warm, gentle smile. Bright natural daylight streams through large windows, soft shallow depth of field, calm atmosphere, single continuous shot, high realism, detailed cinematic video. Quiet cafe ambience sound, no music.",
+   "width": 1344,
+   "height": 768,
+   "length": 124,
+   "ref_image_size": "match",
+   "clip": [
+    "2",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ],
+   "audio_vae": [
+    "5",
+    0
+   ],
+   "ref_images.ref_image_0": [
+    "50",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ReferenceToVideo"
+ },
+ "8": {
+  "inputs": {
+   "noise_seed": 981445682258077
+  },
+  "class_type": "RandomNoise"
+ },
+ "9": {
+  "inputs": {
+   "sampler_name": "euler"
+  },
+  "class_type": "KSamplerSelect"
+ },
+ "10": {
+  "inputs": {
+   "scheduler": "simple",
+   "steps": 4,
+   "denoise": 1,
+   "model": [
+    "142",
+    0
+   ]
+  },
+  "class_type": "BasicScheduler"
+ },
+ "11": {
+  "inputs": {
+   "model": [
+    "142",
+    0
+   ],
+   "conditioning": [
+    "6",
+    0
+   ]
+  },
+  "class_type": "BasicGuider"
+ },
+ "12": {
+  "inputs": {
+   "noise": [
+    "8",
+    0
+   ],
+   "guider": [
+    "11",
+    0
+   ],
+   "sampler": [
+    "9",
+    0
+   ],
+   "sigmas": [
+    "10",
+    0
+   ],
+   "latent_image": [
+    "6",
+    1
+   ]
+  },
+  "class_type": "SamplerCustomAdvanced"
+ },
+ "13": {
+  "inputs": {
+   "samples": [
+    "12",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ]
+  },
+  "class_type": "VAEDecode"
+ },
+ "14": {
+  "inputs": {
+   "samples": [
+    "12",
+    0
+   ],
+   "vae": [
+    "5",
+    0
+   ]
+  },
+  "class_type": "VAEDecodeAudio"
+ },
+ "15": {
+  "inputs": {
+   "fps": 24,
+   "bit_depth": "auto",
+   "color_space": "sRGB",
+   "images": [
+    "13",
+    0
+   ],
+   "audio": [
+    "14",
+    0
+   ]
+  },
+  "class_type": "CreateVideo"
+ },
+ "16": {
+  "inputs": {
+   "filename_prefix": "fk/out",
+   "format": "auto",
+   "format.codec": "auto",
+   "codec": "auto",
+   "video-preview": "",
+   "video": [
+    "15",
+    0
+   ]
+  },
+  "class_type": "SaveVideo"
+ },
+ "50": {
+  "inputs": {
+   "image": "ref_placeholder.png"
+  },
+  "class_type": "LoadImage"
+ },
+ "143": {
+  "inputs": {
+   "lora_name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+   "strength_model": 1.0,
+   "model": [
+    "1",
+    0
+   ]
+  },
+  "class_type": "LoraLoaderModelOnly"
+ },
+ "142": {
+  "inputs": {
+   "shift_video": 12,
+   "shift_audio": 3,
+   "model": [
+    "143",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3SigmaShift"
+ }
+}
