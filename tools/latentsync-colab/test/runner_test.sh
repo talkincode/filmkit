@@ -12,6 +12,7 @@ mkroot() {  # $1 dir, $2 fake-infer mode
   cat > "$1/venv/bin/python" <<SH
 #!/usr/bin/env bash
 R=\$3/out/results.jsonl
+echo "MPLBACKEND=\$MPLBACKEND" > \$3/out/env.txt
 echo '{"event":"loaded","loadSec":12.5}' >> \$R
 case "$2" in
   ok)   echo '{"id":"a","state":"done","wallSec":10,"peakVramMiB":15000,"output":"out/a.raw.mp4"}' >> \$R
@@ -24,11 +25,12 @@ SH
 }
 wait_phase() {  # dir, timeout -> prints phase once terminal
   for _ in $(seq 1 "$2"); do ph=$(python3 -c "import json; print(json.load(open('$1/root/status.json'))['phase'])" 2>/dev/null); case "$ph" in done|failed|aborted) echo "$ph"; return;; esac; sleep 1; done; echo "timeout:$ph"; }
-start() { LS_ROOT="$1/root" LS_DIR="$1/ls" LS_VENV="$1/venv" LS_SKIP_SETUP=1 python3 -u "$1/root/vm/ls_runner.py" > "$1/runner.log" 2>&1 & echo $!; }
+start() { MPLBACKEND=module://matplotlib_inline.backend_inline LS_ROOT="$1/root" LS_DIR="$1/ls" LS_VENV="$1/venv" LS_SKIP_SETUP=1 python3 -u "$1/root/vm/ls_runner.py" > "$1/runner.log" 2>&1 & echo $!; }
 far=$(( $(date +%s) + 3600 ))
 
 mkroot "$T/1" ok $far 900; p=$(start "$T/1"); ph=$(wait_phase "$T/1" 30); kill $p
 ok "all clips done -> phase done" '[ "$ph" = done ]'
+ok "children get MPLBACKEND=Agg even if the kernel set another" 'grep -qx "MPLBACKEND=Agg" "$T/1/root/out/env.txt"'
 ok "per-clip wallSec/peakVram + loadSec merged" 'python3 -c "import json,sys; d=json.load(open(\"$T/1/root/status.json\")); sys.exit(0 if d[\"loadSec\"]==12.5 and d[\"clips\"][1][\"peakVramMiB\"]==15100 and d[\"clips\"][0][\"wallSec\"]==10 else 1)"'
 
 mkroot "$T/2" fail $far 900; p=$(start "$T/2"); ph=$(wait_phase "$T/2" 30); kill $p

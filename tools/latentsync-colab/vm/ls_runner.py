@@ -28,6 +28,9 @@ LS_DIR = os.environ.get("LS_DIR", "/content/LatentSync")
 VENV = os.environ.get("LS_VENV", "/content/ls-venv")
 TERMINAL = ("done", "failed", "aborted")
 START = time.time()
+# The runner inherits the Colab kernel's environment, including MPLBACKEND=module://matplotlib_inline.backend_inline,
+# which the venv's matplotlib rejects at import (latentsync.utils.util imports pyplot): first L4 run, 2026-10-19.
+os.environ["MPLBACKEND"] = "Agg"
 
 CFG = json.load(open(os.path.join(ROOT, "config.json")))
 PINS = json.load(open(os.path.join(ROOT, "vm", "pins.json")))
