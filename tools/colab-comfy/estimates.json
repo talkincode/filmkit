@@ -1,15 +1,22 @@
 {
   "schema": "colab-comfy/estimates@2",
-  "calibration": "M8 real runs 2026-10-18 (README §Real run): L4 EP03 s1a/s3a/s4a and A100-40GB s1a seed+seed+1, all 704x1280",
-  "reference": { "width": 1344, "height": 768, "frames": 124 },
+  "calibration": "M8 real runs 2026-10-18 (README §Real run): L4 EP03 s1a/s3a/s4a and A100-40GB s1a seed+seed+1, all 704x1280; fl2va-8step: L4 fitted to EP03 (9 clips, 2026-10-17) + 李律 EP01 trial3 (2026-10-16), 704x1280 with the audio guide; A100 derived (see uncalibrated)",
+  "reference": {
+    "width": 1344,
+    "height": 768,
+    "frames": 124
+  },
   "scaleExponent": 1.0,
   "downloadSecPerJob": 10,
   "margin": 1.2,
-  "autoGpus": ["L4", "A100"],
+  "autoGpus": [
+    "L4",
+    "A100"
+  ],
   "audioGuide": {
     "warmFactor": 1.03,
-    "calibrated": false,
-    "basis": "not measured. MiniMaxH3AddGuide adds clean audio-latent rows (2 per 40 Hz audio frame, at most the clip length) to the packed sequence: ~1.4% more tokens at 768x1024 (e.g. 107 f: 24576 video + 768 ref + ~356 target-audio rows, +<=356 guide rows), so <= ~3% more attention+MLP work per step; the audio VAE encode of a few seconds is negligible. Recalibrate from ledger.jsonl after the first guided run."
+    "calibrated": true,
+    "basis": "A100 measured on EP004 (2026-10-19, 768x1024): the same 5 warm clips s01b/s01c/s01d/s06a/s06b took 240.3 s without the guide (session fk-ep004-h3) and 246.3 s with it (fk-ep004-h3a): +2.5% (runner polls at ~2 s, so +-1%). L4 not measured; the token count (~1.4% more rows) predicts the same order."
   },
   "gpus": {
     "L4": {
@@ -18,7 +25,12 @@
       "firstLoadSec": 0,
       "teardownSec": 30,
       "perJobInitSec": 80,
-      "warmSecAtRef": { "dense": 316, "vsa-0.75": 276, "vsa-0.5": 298 }
+      "warmSecAtRef": {
+        "dense": 316,
+        "vsa-0.75": 276,
+        "vsa-0.5": 298,
+        "fl2va-8step": 540
+      }
     },
     "A100": {
       "rateCuPerHour": 5.3,
@@ -26,7 +38,20 @@
       "firstLoadSec": 48,
       "teardownSec": 30,
       "perJobInitSec": 10,
-      "warmSecAtRef": { "dense": 61, "vsa-0.75": 53, "vsa-0.5": 58 }
+      "warmSecAtRef": {
+        "dense": 61,
+        "vsa-0.75": 53,
+        "vsa-0.5": 58,
+        "fl2va-8step": 104
+      }
+    }
+  },
+  "basis": {
+    "fl2va-8step": "h3-fl2va@1 = 李律 EP01 / 微辣 EP03 workflow (fl2va pruned int8 + fl2v turbo 8-step LoRA, res_multistep 8 steps, guide built in). L4 warm 540 s at the reference shape: least-squares fit (perJobInit 80 s) of EP03 warm clips 90 f 380.3 s, 124 f 535.2 s, 141 f 620.2/620.2/620.2/625.2 s, 158 f 720.2 s and EP01 trial3 M04 90 f 380.1 s (all 704x1280, submit-to-done incl. decode, 5 s poll): +11% at 90 f, +3% at 124 f, -1% at 141 f, -5.5% at 158 f. First jobs (EP03 s1a 107 f 465.2 s, EP01 CU02 107 f 460.2 s) are reproduced within +6%."
+  },
+  "uncalibrated": {
+    "A100": {
+      "fl2va-8step": "A100 fl2va never measured: 104 = L4 fl2va 540 x (A100/L4 Ref2VA dense warm 61/316)"
     }
   }
 }

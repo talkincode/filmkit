@@ -43,7 +43,7 @@ describe("bindWorkflow differs from the template only at bound paths", () => {
   test("vsa 0.5, 1 ref: also patches 144.sparsity, nothing else", () => {
     const b = bind({ sparsity: 0.5 }, [ref("a")]);
     expect(b.variant).toBe("vsa");
-    expect(diffPaths(tpl.variants.vsa.workflow, b.workflow)).toEqual([
+    expect(diffPaths(tpl.variants.vsa!.workflow, b.workflow)).toEqual([
       "144.inputs.sparsity",
       "50.inputs.image",
       "6.inputs.height",
@@ -75,9 +75,9 @@ describe("bindWorkflow differs from the template only at bound paths", () => {
   });
 
   test("the template object itself is never mutated", () => {
-    const before = JSON.stringify(tpl.variants.vsa.workflow);
+    const before = JSON.stringify(tpl.variants.vsa!.workflow);
     bind({ sparsity: 0.75, ref2: "./refs/b.png" }, [ref("a"), ref("b")]);
-    expect(JSON.stringify(tpl.variants.vsa.workflow)).toBe(before);
+    expect(JSON.stringify(tpl.variants.vsa!.workflow)).toBe(before);
   });
 
   // Wiring as in lilv-ep01 run2..run4 (fl2va): LoadAudio -> MiniMaxH3AddGuide(positive=6.0, latent=6.1,

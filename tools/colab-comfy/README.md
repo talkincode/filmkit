@@ -1,8 +1,9 @@
 # colab-comfy
 
 Run fixed ComfyUI API workflows on a Google Colab GPU (L4 by default) as ordinary filmkit nodes.
-First template: **MiniMax H3 Ref2VA** (reference image(s) + prompt → video with audio), with an optional **VSA gate**
-(sparsity 0.5 / 0.75).
+Templates: **MiniMax H3 Ref2VA** (reference image(s) + prompt → video with audio), with an optional **VSA gate**
+(sparsity 0.5 / 0.75) and, in `h3-ref2va@2`, an optional audio guide; **MiniMax H3 FL2VA** (`h3-fl2va@1`: first
+frame + driving audio + prompt, turbo 8-step: the EP01/EP03 lip-sync pipeline).
 
 `colab-comfy` is a standalone Bun/TypeScript helper plus a small Python payload that runs inside the Colab VM
 (standard library only). It is **not** part of filmkit core: nothing under `src/` knows about Colab, ComfyUI, sessions
@@ -91,6 +92,51 @@ into the model:
   checkpoint follows the guide as well is only known after the first real run.
 - **Cost:** `estimates.json` `audioGuide.warmFactor` (1.03, `calibrated: false`) multiplies the warm time of guided jobs;
   it is derived from the extra packed rows (~1.4% more tokens at 768×1024), not measured.
+
+### Template h3-fl2va@1 (first frame + driving audio: the EP01 / EP03 lip-sync pipeline)
+
+Task `h3-fl2va`. The workflow is 李律 EP01 (run3/run4, trial2/3) and 微辣 EP03 (all 9 clips) as run on Colab: those 30
+API JSONs are identical apart from prompt, size, length, seed and file names. Ref2VA (+ the @2 audio guide) invents the
+person from a reference picture; FL2VA **starts** from the real keyframe and is driven by the VO.
+
+```yaml
+      impl:
+        profile: colab-comfy
+        task: h3-fl2va
+        params:
+          template: h3-fl2va@1
+          prompt: "<竖屏中景，腰部以上>首帧里同一位女性……正面看着镜头，用普通话……对镜头说话，口型与配音同步……只有她的人声，无背景音乐，画面中不出现任何文字。"
+          image: ./media/kf/s01a.png        # the first frame; same aspect ratio as resolution
+          audio: ./media/vo/h3/s01a.wav     # driving audio from frame 0, <= frames/24 s
+          seed: 20261019
+          duration: 3.86                    # frames = 5+17k >= duration*24 (107 here)
+          resolution: 768x1024
+```
+
+| Parameter | Value | Source |
+|---|---|---|
+| model | `minimax_h3_fl2va_pruned_int8_convrot` (UNETLoader, weight_dtype default) | EP01 + EP03 JSONs |
+| LoRA | `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16`, LoraLoaderModelOnly strength 1.0 | EP01 + EP03 |
+| text encoder / VAEs | qwen3vl_32b nvfp4 (CLIPLoader type minimax), video VAE fp16, audio VAE fp32 | EP01 + EP03, same pins as Ref2VA |
+| conditioning | `MiniMaxH3ImageToVideo`, `first_frame` = LoadImage(params.image), no `last_frame` | EP01 run3+/EP03 (run2/trial also set last = first) |
+| audio | LoadAudio(params.audio) → `MiniMaxH3AddGuide(frame_idx 0, audio_vae, latent = I2V.1)` → BasicGuider | EP01 + EP03 |
+| sampler | KSamplerSelect `res_multistep`, BasicScheduler `simple`, 8 steps, denoise 1.0 | EP01 + EP03 (turbo 8-step) |
+| cfg / negative | BasicGuider: cfg 1, no negative prompt | EP01 + EP03 |
+| shift | no SigmaShift node → model default video 12 / audio 3 (`supported_models.py` MiniMaxH3) | EP01 + EP03 |
+| frames / fps | 5 + 17k ≥ duration·24, CreateVideo fps 24 | node grid; EP01 90/107/124, EP03 90–158 |
+| seed | RandomNoise `noise_seed` = seed + candidate | EP01/EP03 used one fixed seed per framing |
+| output | CreateVideo (bit_depth auto, sRGB) → SaveVideo auto/auto | pinned-commit defaults (EP01 omitted them) |
+
+- **First frame:** the node stretches it to the canvas (no crop), so `validate` refuses a keyframe whose aspect ratio
+  is more than 1% off the resolution. EP01/EP03 keyframes were exactly 704×1280.
+- **Audio:** required. Same checks as the @2 guide (RIFF/WAVE, not longer than the clip); bytes in the cache key.
+- **No VSA, no refs** (`sparsity` / `ref` are refused). One session runs one template: a film moving to h3-fl2va
+  should move all of its H3 clips.
+- **Pins:** fl2va int8 at Comfy-Org/MiniMax-H3 `e5eb578…` (the revision Ref2VA uses), the LoRA at
+  lightx2v/Minimax-h3-Turbo `a29e57d…` (repo head since 2026-10-16 06:07 UTC, before EP01's first run); sha256/bytes from
+  the HF API. EP01/EP03 downloaded unpinned `main`; ComfyUI is pinned at `ce1e922…` (EP03 ran a main a few hours older).
+- **Cost:** own warm key `fl2va-8step`. L4 (540 s at the reference shape) is fitted to the measured EP03/EP01 L4 clips
+  (−6 % … +11 %). **A100 is not measured** (104 s = L4 × the Ref2VA A100/L4 ratio) and the estimate says so per job.
 
 ### Candidates
 

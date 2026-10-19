@@ -88,7 +88,7 @@
         "variant": { "type": "string", "pattern": "^(dense|vsa-[0-9.]+)$" },
         "inputs": {
           "type": "array",
-          "description": "Reference images and the optional audio guide (WAV), as bundle members inputs/<sha256>.<ext>.",
+          "description": "Reference images or the first frame (h3-fl2va), and the audio guide (WAV), as bundle members inputs/<sha256>.<ext>.",
           "items": {
             "type": "object",
             "additionalProperties": false,

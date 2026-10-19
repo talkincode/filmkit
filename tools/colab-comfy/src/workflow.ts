@@ -1,12 +1,14 @@
 // Template loading and workflow binding (PLAN D4/D5, §5.3).
 //
-// A template is an unmodified ComfyUI API JSON (two variants: dense and VSA)
-// plus bindings.json naming the exact node inputs we may patch. bindWorkflow()
-// deep-copies the variant and writes only those fields; the only structural
-// edits are the variant choice, the extra LoadImage nodes for ref2/ref3 and,
-// when a job has an audio guide, the LoadAudio + MiniMaxH3AddGuide pair
-// declared in bindings.audioGuide (spliced between the conditioning node and
-// the guider, the wiring 李律 EP01 used with fl2va).
+// A template is an unmodified ComfyUI API JSON (h3-ref2va: dense and VSA variants;
+// h3-fl2va: one dense workflow) plus bindings.json naming the exact node inputs
+// we may patch. bindWorkflow() deep-copies the variant and writes only those
+// fields; the only structural edits are the variant choice, the extra LoadImage
+// nodes for ref2/ref3 and, when a h3-ref2va@2 job has an audio guide, the
+// LoadAudio + MiniMaxH3AddGuide pair declared in bindings.audioGuide (spliced
+// between the conditioning node and the guider, the wiring 李律 EP01 used with
+// fl2va). h3-fl2va has that pair built in: its bindings name the LoadImage
+// (first frame) and LoadAudio (driving audio) whose file names are bound.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,7 +21,7 @@ export const TEMPLATES_ROOT = join(import.meta.dir, "..", "templates");
  * Released templates; each `@N` is frozen (test/immutability.test.ts). Must equal the Profile's `template` enum.
  * @2 = @1 (same models, workflows and pins) + the `audioGuide` binding (MiniMaxH3AddGuide lip sync).
  */
-export const TEMPLATE_NAMES = ["h3-ref2va@1", "h3-ref2va@2"] as const;
+export const TEMPLATE_NAMES = ["h3-ref2va@1", "h3-ref2va@2", "h3-fl2va@1"] as const;
 
 export type WorkflowJson = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 export type Variant = "dense" | "vsa";
@@ -38,9 +40,20 @@ export interface Manifest {
 export interface Bindings {
   template: string;
   fps: number;
-  variants: Record<Variant, string>;
-  bind: Record<"prompt" | "width" | "height" | "frames" | "seed" | "sparsity" | "outputPrefix", [string, string]>;
-  refs: { loadNode: string; target: string; inputPattern: string; indexBase: number; max: number };
+  /** h3-ref2va: dense + vsa; h3-fl2va: dense only (no VSA gate for fl2va). */
+  variants: { dense: string; vsa?: string };
+  bind: Record<"prompt" | "width" | "height" | "frames" | "seed" | "outputPrefix", [string, string]> & { sparsity?: [string, string] };
+  /** Ref2VA reference images (`ref`..`ref3`). Absent for h3-fl2va. */
+  refs?: { loadNode: string; target: string; inputPattern: string; indexBase: number; max: number };
+  /** h3-fl2va: the LoadImage feeding the conditioning node's `first_frame` (params.image, required). */
+  firstFrame?: { loadNode: string; target: [string, string] };
+  /**
+   * h3-fl2va: the built-in LoadAudio -> MiniMaxH3AddGuide (`guideNode`) of the workflow; params.audio is required
+   * and bound into `loadNode`. (h3-ref2va@2 uses the optional `audioGuide` splice below instead.)
+   */
+  audio?: { loadNode: string; guideNode: string };
+  /** Warm-time key in estimates.json for this template's jobs; default: the variant key (dense, vsa-0.75, ...). */
+  estimateKey?: string;
   /**
    * Optional lip-sync guide: `loadNode` (LoadAudio) feeds `guideNode` (MiniMaxH3AddGuide), which takes the
    * conditioning `positive` and the AV `latent`, encodes the audio with `audioVae` and anchors it at `frameIdx`;
@@ -74,13 +87,30 @@ export interface Template {
   manifestSha256: string;
   bindings: Bindings;
   bindingsSha256: string;
-  objectInfo: {
-    classes: {
-      MiniMaxH3ReferenceToVideo: { inputs: { length: LengthSpec; width: { min: number; step: number }; height: { min: number; step: number } } };
-      Ref2VAVSAGatePatch: { inputs: { sparsity: { min: number; max: number } } };
-    };
-  };
-  variants: Record<Variant, { file: string; fileSha256: string; workflow: WorkflowJson }>;
+  objectInfo: { classes: Record<string, { inputs: Record<string, unknown> }> };
+  variants: { dense: VariantFile; vsa?: VariantFile };
+}
+
+/** Size limits of the conditioning node (the one `bind.frames` points at): MiniMaxH3ReferenceToVideo / ImageToVideo. */
+export interface VariantFile {
+  file: string;
+  fileSha256: string;
+  workflow: WorkflowJson;
+}
+
+export interface ConditioningSpec {
+  length: LengthSpec;
+  width: { min: number; step: number };
+  height: { min: number; step: number };
+}
+
+export function conditioningSpec(tpl: Template): ConditioningSpec {
+  const [node] = tpl.bindings.bind.frames;
+  const wf = tpl.variants.dense.workflow;
+  const cls = wf[node]!.class_type;
+  const spec = tpl.objectInfo.classes[cls]?.inputs as unknown as ConditioningSpec | undefined;
+  if (!spec?.length || !spec.width || !spec.height) throw new Error(`template ${tpl.name}: object_info snapshot lacks ${cls} length/width/height`);
+  return spec;
 }
 
 export interface ResolvedRef {
@@ -102,6 +132,8 @@ export interface ResolvedAudio {
 /** Every input file of a job, content-hashed: what binding, cache keys, bundles and records all use. */
 export interface ResolvedInputs {
   refs: ResolvedRef[];
+  /** h3-fl2va first frame (params.image). */
+  image?: ResolvedRef;
   audio?: ResolvedAudio;
 }
 
@@ -131,6 +163,10 @@ export function loadTemplate(name: string, root: string = TEMPLATES_ROOT): Templ
   const variants = {} as Template["variants"];
   for (const v of ["dense", "vsa"] as const) {
     const file = bindings.value.variants[v];
+    if (file === undefined) {
+      if (v === "dense") throw new ColabComfyError(EXIT.io, [{ code: "io", message: `template ${name} has no dense variant` }]);
+      continue;
+    }
     const wf = readJson<WorkflowJson>(join(dir, file));
     variants[v] = { file, fileSha256: sha256Hex(wf.raw), workflow: wf.value };
   }
@@ -151,17 +187,38 @@ export function loadTemplate(name: string, root: string = TEMPLATES_ROOT): Templ
 /** Every bound path must exist in the variant it applies to; a drifted template fails here, loudly. */
 function checkBindingsResolve(tpl: Template): void {
   const problems: string[] = [];
+  if (tpl.variants.vsa && !tpl.bindings.bind.sparsity) problems.push("vsa variant without a sparsity binding");
+  if (!tpl.bindings.refs === !tpl.bindings.firstFrame) problems.push("exactly one of refs / firstFrame must be bound");
+  if (tpl.bindings.audio && tpl.bindings.audioGuide) problems.push("audio (built in) and audioGuide (optional splice) are exclusive");
   for (const v of ["dense", "vsa"] as const) {
+    const variant = tpl.variants[v];
+    if (!variant) continue;
+    const wf = variant.workflow;
     for (const [key, [node, input]] of Object.entries(tpl.bindings.bind)) {
       if (key === "sparsity" && v === "dense") continue;
-      if (!(input in (tpl.variants[v].workflow[node]?.inputs ?? {}))) problems.push(`${v}: binding ${key} -> ${node}.${input} does not exist`);
+      if (!(input in (wf[node]?.inputs ?? {}))) problems.push(`${v}: binding ${key} -> ${node}.${input} does not exist`);
     }
-    const { loadNode, target } = tpl.bindings.refs;
-    if (tpl.variants[v].workflow[loadNode]?.class_type !== "LoadImage") problems.push(`${v}: node ${loadNode} is not a LoadImage`);
-    if (!tpl.variants[v].workflow[target]) problems.push(`${v}: ref target node ${target} missing`);
+    if (tpl.bindings.refs) {
+      const { loadNode, target } = tpl.bindings.refs;
+      if (wf[loadNode]?.class_type !== "LoadImage") problems.push(`${v}: node ${loadNode} is not a LoadImage`);
+      if (!wf[target]) problems.push(`${v}: ref target node ${target} missing`);
+    }
+    if (tpl.bindings.firstFrame) {
+      const { loadNode, target } = tpl.bindings.firstFrame;
+      if (wf[loadNode]?.class_type !== "LoadImage") problems.push(`${v}: firstFrame node ${loadNode} is not a LoadImage`);
+      const t = wf[target[0]]?.inputs[target[1]];
+      if (!Array.isArray(t) || t[0] !== loadNode) problems.push(`${v}: ${target.join(".")} is not wired to firstFrame node ${loadNode}`);
+    }
+    if (tpl.bindings.audio) {
+      const { loadNode, guideNode } = tpl.bindings.audio;
+      if (wf[loadNode]?.class_type !== "LoadAudio") problems.push(`${v}: audio node ${loadNode} is not a LoadAudio`);
+      const gi = wf[guideNode];
+      if (gi?.class_type !== "MiniMaxH3AddGuide" || !Array.isArray(gi.inputs.audio) || gi.inputs.audio[0] !== loadNode) {
+        problems.push(`${v}: audio guide node ${guideNode} is not a MiniMaxH3AddGuide fed by ${loadNode}`);
+      }
+    }
     const g = tpl.bindings.audioGuide;
     if (!g) continue;
-    const wf = tpl.variants[v].workflow;
     for (const id of [g.loadNode, g.guideNode]) if (wf[id]) problems.push(`${v}: audioGuide node id ${id} is already used`);
     for (const [name, [node]] of [["positive", g.positive], ["latent", g.latent], ["audioVae", g.audioVae]] as const) {
       if (!wf[node]) problems.push(`${v}: audioGuide ${name} source node ${node} missing`);
@@ -197,12 +254,10 @@ export interface Bound {
 export const KEY_OUTPUT_PREFIX = "fk/out";
 
 export function bindWorkflow(tpl: Template, input: BindInput, candidate: number, inputs: ResolvedInputs): Bound {
-  const { refs, audio } = inputs;
-  if (refs.length < 1 || refs.length > tpl.bindings.refs.max) {
-    throw new Error(`bindWorkflow: need 1..${tpl.bindings.refs.max} refs, got ${refs.length}`);
-  }
+  const { refs, audio, image } = inputs;
   const variant = variantFor(input.sparsity);
   const src = tpl.variants[variant];
+  if (!src) throw new Error(`bindWorkflow: template ${tpl.name} has no ${variant} variant`);
   const wf = structuredClone(src.workflow);
   const set = ([node, name]: [string, string], value: unknown): void => {
     wf[node]!.inputs[name] = value;
@@ -214,9 +269,19 @@ export function bindWorkflow(tpl: Template, input: BindInput, candidate: number,
   set(b.frames, input.frames);
   set(b.seed, input.seed + candidate);
   set(b.outputPrefix, KEY_OUTPUT_PREFIX);
-  if (variant === "vsa") set(b.sparsity, input.sparsity);
+  if (variant === "vsa") set(b.sparsity!, input.sparsity);
 
-  const { loadNode, target, inputPattern, indexBase } = tpl.bindings.refs;
+  if (tpl.bindings.firstFrame) {
+    if (!image || refs.length) throw new Error(`bindWorkflow: template ${tpl.name} takes exactly one first-frame image and no refs`);
+    wf[tpl.bindings.firstFrame.loadNode]!.inputs.image = `${image.sha256}.${image.ext}`;
+  }
+  if (tpl.bindings.refs) {
+    if (image) throw new Error(`bindWorkflow: template ${tpl.name} takes refs, not a first-frame image`);
+    if (refs.length < 1 || refs.length > tpl.bindings.refs.max) {
+      throw new Error(`bindWorkflow: need 1..${tpl.bindings.refs.max} refs, got ${refs.length}`);
+    }
+  }
+  const { loadNode, target, inputPattern, indexBase } = tpl.bindings.refs ?? { loadNode: "", target: "", inputPattern: "", indexBase: 0 };
   refs.forEach((ref, i) => {
     const id = String(Number(loadNode) + i);
     const filename = `${ref.sha256}.${ref.ext}`;
@@ -228,7 +293,11 @@ export function bindWorkflow(tpl: Template, input: BindInput, candidate: number,
     }
   });
 
-  if (audio) {
+  if (tpl.bindings.audio) {
+    // Built-in guide (h3-fl2va): only the file name is bound. Content-hashed, so the bytes are in the cache key.
+    if (!audio) throw new Error(`bindWorkflow: template ${tpl.name} needs the driving audio`);
+    wf[tpl.bindings.audio.loadNode]!.inputs.audio = `${audio.sha256}.${audio.ext}`;
+  } else if (audio) {
     // The content-hashed filename puts the audio bytes into the workflow, hence into the cache key.
     const g = tpl.bindings.audioGuide;
     if (!g) throw new Error(`bindWorkflow: template ${tpl.name} has no audioGuide binding`);

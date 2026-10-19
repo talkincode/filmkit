@@ -12,7 +12,7 @@ import { sha256Hex } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { chooseGpu, estimateCU, isCalibrated, loadEstimates, type Breakdown, type EstimateJob } from "./estimate.ts";
 import { decide, GPU_AUTO, type GateResult } from "./gate.ts";
-import { jobFrames, normalizeJob, resolveInputs, validateJob, variantKey, type Job } from "./job.ts";
+import { estimateKey, jobFrames, normalizeJob, resolveInputs, usesAudioGuideSplice, validateJob, variantKey, type Job } from "./job.ts";
 import { acquireBatchLock, stateDir } from "./ledger.ts";
 import { runSession, sessionName, type SessionResult } from "./session.ts";
 import { loadTemplate, type Template } from "./workflow.ts";
@@ -213,7 +213,17 @@ async function prepare(opts: EstimateOptions, mode: EstimateReport["mode"]): Pro
   for (const s of selected) {
     for (const c of s.candidates) {
       if (c.cached) cached++;
-      else misses.push({ node: s.id, candidate: c.index, variant: s.variant, width: s.job.width, height: s.job.height, frames: s.frames, audioGuide: s.job.audio !== undefined });
+      else {
+        misses.push({
+          node: s.id,
+          candidate: c.index,
+          variant: estimateKey(s.job, s.template),
+          width: s.job.width,
+          height: s.job.height,
+          frames: s.frames,
+          audioGuide: usesAudioGuideSplice(s.job, s.template),
+        });
+      }
     }
   }
   const cfg = loadEstimates();
@@ -548,8 +558,9 @@ export function formatEstimate(r: EstimateReport): string {
     `  fixed ${e.fixedSec.startup + e.fixedSec.firstLoad + e.fixedSec.teardown}s (startup ${e.fixedSec.startup} + first load ${e.fixedSec.firstLoad} + teardown ${e.fixedSec.teardown})`,
   );
   for (const j of e.jobs) {
-    const guide = j.audioGuide ? ` x audio guide ${j.audioGuideFactor} (uncalibrated)` : "";
-    lines.push(`  ${j.node}#${j.candidate} ${j.variant}: generate ${j.genSec}s (init ${j.initSec} + scale ${j.scale}${guide}) + download ${j.downloadSec}s`);
+    const guide = j.audioGuide ? ` x audio guide ${j.audioGuideFactor}${j.audioGuideCalibrated ? "" : " (uncalibrated)"}` : "";
+    const unc = j.calibrated === false ? ` [${j.variant} timings on ${e.timingGpu} not measured: ${j.basis ?? "derived"}]` : "";
+    lines.push(`  ${j.node}#${j.candidate} ${j.variant}: generate ${j.genSec}s (init ${j.initSec} + scale ${j.scale}${guide}) + download ${j.downloadSec}s${unc}`);
   }
   lines.push(`  total ${e.totalSec}s`);
   if (r.gate.decision === "proceed") lines.push("gate: proceed");

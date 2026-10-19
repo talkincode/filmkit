@@ -61,8 +61,10 @@ describe("normalizeJob", () => {
 
   test("RESOLUTIONS / TEMPLATE_NAMES are exactly the Profile's enums (one list, two places)", () => {
     const profile = parseYaml(readFileSync(join(import.meta.dir, "..", "..", "..", "profiles", "colab-comfy.yaml"), "utf8"));
-    expect(profile.tasks["h3-ref2va"].paramsSchema.properties.resolution.enum).toEqual([...RESOLUTIONS]);
-    expect(profile.tasks["h3-ref2va"].paramsSchema.properties.template.enum).toEqual([...TEMPLATE_NAMES]);
+    const tasks = ["h3-ref2va", "h3-fl2va"].map((t) => profile.tasks[t].paramsSchema.properties);
+    for (const props of tasks) expect(props.resolution.enum).toEqual([...RESOLUTIONS]);
+    expect(Object.keys(profile.tasks).sort()).toEqual(["h3-fl2va", "h3-ref2va"]);
+    expect(tasks.flatMap((props) => props.template.enum)).toEqual([...TEMPLATE_NAMES]);
   });
 
   test("defaults: sparsity 0, candidates 1, no pick", () => {
