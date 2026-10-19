@@ -116,7 +116,8 @@
         },
         "refs": {
           "type": "array",
-          "minItems": 1,
+          "description": "Ref2VA reference images; empty for h3-fl2va (which records params.image).",
+          "minItems": 0,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -135,9 +136,27 @@
             }
           }
         },
+        "image": {
+          "type": "object",
+          "description": "h3-fl2va first frame (MiniMaxH3ImageToVideo first_frame).",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
         "audio": {
           "type": "object",
-          "description": "Lip-sync guide fed to MiniMaxH3AddGuide (absent: none).",
+          "description": "Lip-sync audio fed to MiniMaxH3AddGuide (h3-ref2va@2: optional guide; h3-fl2va: required driving audio).",
           "additionalProperties": false,
           "required": [
             "path",

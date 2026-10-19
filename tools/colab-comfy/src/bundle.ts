@@ -88,7 +88,7 @@ export function buildJobsDoc(opts: BuildJobsOptions): BuiltJobs {
   for (const n of opts.nodes) {
     const tpl = n.template;
     const inputs = resolveInputs(n.job, opts.baseDir);
-    const files = [...inputs.refs, ...(inputs.audio ? [inputs.audio] : [])];
+    const files = [...inputs.refs, ...(inputs.image ? [inputs.image] : []), ...(inputs.audio ? [inputs.audio] : [])];
     for (const c of n.candidates) {
       if (c.cached) continue;
       const bound = bindWorkflow(tpl, bindInput(n.job, tpl), c.index, inputs);

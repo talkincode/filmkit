@@ -6,6 +6,15 @@ changing the protocol.
 
 ## Unreleased
 
+- **`colab-comfy`: template `h3-fl2va@1` / task `h3-fl2va` (first frame + driving audio).**
+  The 李律 EP01 / 微辣 EP03 lip-sync workflow: fl2va pruned int8 + fl2v turbo 8-step LoRA,
+  `MiniMaxH3ImageToVideo` from `params.image`, `LoadAudio → MiniMaxH3AddGuide (frame 0)` from
+  `params.audio` (both required), res_multistep 8 steps, cfg 1. New pinned weights (fl2va int8,
+  8-step LoRA, with sha256). `validate` refuses a first frame whose aspect differs from the
+  resolution (the node stretches it). Estimate key `fl2va-8step`: L4 fitted to EP03/EP01, A100
+  derived and flagged uncalibrated. Run records carry `params.image`.
+  The audio guide's warm factor (1.03) is now measured on A100 (EP004: +2.5 %).
+
 - **`colab-comfy`: template `h3-ref2va@2` with an audio guide for lip sync (`params.audio`).**
   @2 is @1 (same workflows, models, pins; @1 stays frozen and refuses `audio`) plus an
   `audioGuide` binding. A `h3-ref2va@2` scene can declare a

@@ -1,0 +1,51 @@
+{
+  "template": "h3-fl2va@1",
+  "fps": 24,
+  "estimateKey": "fl2va-8step",
+  "variants": {
+    "dense": "fl2va.api.json"
+  },
+  "bind": {
+    "prompt": [
+      "6",
+      "prompt"
+    ],
+    "width": [
+      "6",
+      "width"
+    ],
+    "height": [
+      "6",
+      "height"
+    ],
+    "frames": [
+      "6",
+      "length"
+    ],
+    "seed": [
+      "9",
+      "noise_seed"
+    ],
+    "outputPrefix": [
+      "15",
+      "filename_prefix"
+    ]
+  },
+  "firstFrame": {
+    "loadNode": "20",
+    "target": [
+      "6",
+      "first_frame"
+    ]
+  },
+  "audio": {
+    "loadNode": "21",
+    "guideNode": "16"
+  },
+  "requiredClasses": [
+    "MiniMaxH3ImageToVideo",
+    "MiniMaxH3AddGuide",
+    "LoadAudio",
+    "SaveVideo"
+  ]
+}

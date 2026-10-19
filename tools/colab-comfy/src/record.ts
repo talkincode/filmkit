@@ -98,6 +98,7 @@ export function buildRecord(input: RecordInput): string {
       candidates: job.candidates,
       pick: job.pick ?? null,
       refs: inputs.refs.map((r) => ({ path: r.path, sha256: r.sha256 })),
+      ...(inputs.image ? { image: { path: inputs.image.path, sha256: inputs.image.sha256 } } : {}),
       ...(inputs.audio ? { audio: { path: inputs.audio.path, sha256: inputs.audio.sha256, durationSec: inputs.audio.durationSec } } : {}),
     },
     winner: {
