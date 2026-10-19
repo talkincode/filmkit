@@ -85,7 +85,10 @@ read_usage() { c 60 usage; [ "$C_RC" = 0 ] || { BAL=""; ASSIGN=""; return 1; }
 # ---------------------------------------------------------------- bundle (local, no Colab)
 [ -f "$INPUTS/manifest.json" ] || { echo "no $INPUTS/manifest.json: run prep_inputs.sh first" >&2; exit 2; }
 DEADLINE_EPOCH=$(( $(date +%s) + DEADLINE_MIN * 60 ))
-HERE_DIR="$HERE" python3 - "$INPUTS" "$OUT" "$DEADLINE_EPOCH" "$GPU" <<'PY' || exit 2
+# VM self-release grace after the host deadline: 300 s, or 120 s under --budget-cu so a vanished host costs at most
+# (deadline + 2 min) x nominal rate (A100, 1.0 CU: 11 + 2 = 13 min = 1.15 CU nominal, ~0.91 at the 4.2 effective rate).
+VM_GRACE=300; [ -n "$BUDGET_CU" ] && VM_GRACE=120
+HERE_DIR="$HERE" VM_GRACE="$VM_GRACE" python3 - "$INPUTS" "$OUT" "$DEADLINE_EPOCH" "$GPU" <<'PY' || exit 2
 import hashlib, json, os, shutil, sys, tarfile
 inputs, out, deadline, gpu = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 man = json.load(open(os.path.join(inputs, "manifest.json")))
@@ -95,9 +98,9 @@ for m in man:
         p = os.path.join(inputs, m[k]); h = hashlib.sha256(open(p, "rb").read()).hexdigest()
         if h != m[k + "Sha256"]: sys.exit("input changed since prep: %s" % p)
     clips.append({"id": m["id"], "video": m["video"], "audio": m["audio"], "frames": m["frames"]})
-# VM watchdog: hard deadline 300 s after the host deadline (the host stops first), host heartbeat stale 15 min.
+# VM watchdog: hard deadline VM_GRACE s after the host deadline (the host stops first), host heartbeat stale 15 min.
 cfg = {"protocol": "latentsync-colab/v1", "gpuRequested": gpu, "clips": clips,
-       "hardDeadlineEpoch": deadline + 300, "heartbeatStaleSec": 900}
+       "hardDeadlineEpoch": deadline + int(os.environ["VM_GRACE"]), "heartbeatStaleSec": 900}
 json.dump(cfg, open(os.path.join(out, "config.json"), "w"), indent=1)
 with tarfile.open(os.path.join(out, "bundle.tar.gz"), "w:gz") as tf:
     tf.add(os.path.join(out, "config.json"), "config.json")

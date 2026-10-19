@@ -43,6 +43,7 @@ ok "failed clip -> exit 1, good clip still downloaded, session stopped" '[ "$rc"
 
 rc=$(FAKE_DIR="$T/f6" bash "$HERE/run.sh" --gpu A100 --inputs "$T/in" --out "$T/o6" --budget-cu 0.9 --dry-run 2>&1 | grep -o "deadline=[0-9]*min")
 ok "--budget-cu caps the A100 deadline (0.9 CU / 5.3 CU/h = 10 min)" '[ "$rc" = "deadline=10min" ]'
+ok "--budget-cu shortens the VM grace to 120 s" 'python3 -c "import json,sys,os; c=json.load(open(\"$T/o6/config.json\")); sys.exit(0 if 0 < c[\"hardDeadlineEpoch\"] - os.path.getmtime(\"$T/o6/config.json\") - 600 <= 125 else 1)"'
 ok "dry run makes no colab call" '[ ! -e "$T/f6/calls" ]'
 rc=$(FAKE_DIR="$T/f7" bash "$HERE/run.sh" --gpu H100 --inputs "$T/in" --out "$T/o7" >/dev/null 2>&1; echo $?)
 ok "H100 refused" '[ "$rc" = 2 ] && [ ! -e "$T/f7/calls" ]'
