@@ -49,7 +49,7 @@ PY
       *) echo "fake $remote" > "$local";;
     esac;;
   stop) s=$(cat "$D/stops" 2>/dev/null || echo 0); echo $((s+1)) > "$D/stops"
-    if [ "$s" -ge "${FAKE_STICKY_STOPS:-0}" ] && [ -f "$D/session" ]; then rm -f "$D/session"; python3 -c "print('%.2f' % ($bal - 0.5))" > "$D/balance"; fi
+    if [ "$s" -ge "${FAKE_STICKY_STOPS:-0}" ] && [ -f "$D/session" ]; then rm -f "$D/session"; [ "${FAKE_NO_CHARGE:-0}" = 1 ] || python3 -c "print('%.2f' % ($bal - 0.5))" > "$D/balance"; fi
     echo "[colab] stopped";;
   restart-kernel) echo "restarted";;
   *) echo "fake colab: unknown $cmd" >&2; exit 1;;

@@ -137,7 +137,9 @@ teardown() {
   local assign_ok=0 prev="" settled=0
   for i in 1 2 3 4 5 6; do  # usage settles a little after release: two equal balance readings = settled
     read_usage; [ "$ASSIGN" = 0 ] && assign_ok=1
-    [ "$assign_ok" = 1 ] && [ -n "$BAL" ] && [ "$BAL" = "$prev" ] && { settled=1; break; }
+    # Settled = two equal readings AND the balance has moved: Colab can post the charge minutes after release
+    # (A100 run 2026-10-19: unchanged for >6 min), and an unmoved balance must not be recorded as 0 CU.
+    [ "$assign_ok" = 1 ] && [ -n "$BAL" ] && [ "$BAL" = "$prev" ] && [ "$BAL" != "$BAL_BEFORE" ] && { settled=1; break; }
     prev=$BAL; sleep "$USAGE_SLEEP"
   done
   T1=$(date +%s)
@@ -147,7 +149,7 @@ out, gpu, sess, t0, t1, b0, b1, settled, ver, asg = sys.argv[1:]
 st = {}
 try: st = json.load(open(os.path.join(out, "status.json")))
 except Exception: pass
-cu = round(float(b0) - float(b1), 3) if b0 and b1 else None
+cu = round(float(b0) - float(b1), 3) if b0 and b1 and settled == "1" else None  # None = charge not posted yet: re-check `colab usage` later
 rec = {"protocol": "latentsync-colab/v1", "gpu": gpu, "session": sess, "wallSec": int(t1) - int(t0),
        "usageBeforeCU": b0, "usageAfterCU": b1, "actualCU": cu, "usageSettled": settled == "1",
        "sessionReleasedVerified": ver == "1", "zeroAssignments": asg == "1",

@@ -38,6 +38,9 @@ ok "sticky stop is retried and then verified" '[ "$rc" = 0 ] && [ "$(cat "$T/f3/
 rc=$(FAKE_STICKY_STOPS=99 run 4)
 ok "unreleasable session -> exit 3 + loud warning" '[ "$rc" = 3 ] && grep -q "TEARDOWN NOT VERIFIED" "$T/log4"'
 
+rc=$(FAKE_NO_CHARGE=1 run 8)
+ok "charge not posted yet -> actualCU null, not 0" '[ "$rc" = 0 ] && python3 -c "import json,sys; r=json.load(open(\"$T/o8/run.json\")); sys.exit(0 if r[\"actualCU\"] is None and not r[\"usageSettled\"] else 1)"'
+
 rc=$(FAKE_CLIP_FAIL=b run 5)
 ok "failed clip -> exit 1, good clip still downloaded, session stopped" '[ "$rc" = 1 ] && [ -s "$T/o5/a.ls.mp4" ] && [ ! -e "$T/o5/b.raw.mp4" ] && [ ! -f "$T/f5/session" ]'
 
