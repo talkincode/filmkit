@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { ColabComfyError } from "../src/errors.ts";
-import { jobFrames, normalizeJob, sniffImage, validateJob, variantKey } from "../src/job.ts";
+import { MAX_DURATION, RESOLUTIONS, jobFrames, normalizeJob, sniffImage, validateJob, variantKey } from "../src/job.ts";
 import { framesFor } from "../src/workflow.ts";
 import { fakePng, makeJob, tmpProject, tpl } from "./support.ts";
 
@@ -49,6 +52,16 @@ describe("normalizeJob", () => {
     expect(fromStrings).toEqual(fromTyped);
     expect(fromTyped.width).toBe(704);
     expect(fromTyped.height).toBe(1280);
+  });
+
+  test("3:4 and 4:3 sizes parse to width x height", () => {
+    expect(makeJob({ resolution: "768x1024" })).toMatchObject({ resolution: "768x1024", width: 768, height: 1024 });
+    expect(makeJob({ resolution: "1024x768" })).toMatchObject({ resolution: "1024x768", width: 1024, height: 768 });
+  });
+
+  test("RESOLUTIONS is exactly the Profile's resolution enum (one list, two places)", () => {
+    const profile = parseYaml(readFileSync(join(import.meta.dir, "..", "..", "..", "profiles", "colab-comfy.yaml"), "utf8"));
+    expect(profile.tasks["h3-ref2va"].paramsSchema.properties.resolution.enum).toEqual([...RESOLUTIONS]);
   });
 
   test("defaults: sparsity 0, candidates 1, no pick", () => {
@@ -126,6 +139,12 @@ describe("validateJob (offline)", () => {
     expect(check({ resolution: "1344x768", duration: 6 })[0]).toMatchObject({ field: "resolution" });
     expect(check({ resolution: "1344x768", duration: 5 })).toEqual([]); // 124 frames, the proven shape
     expect(check({ resolution: "704x1280", duration: 6.58 })).toEqual([]); // exactly the cap
+  });
+  test("3:4 / 4:3 fit the cap at every allowed duration (768x1024x175 = 137.6M < 142.4M)", () => {
+    for (const resolution of ["768x1024", "1024x768"]) {
+      expect(check({ resolution, duration: MAX_DURATION })).toEqual([]);
+      expect(jobFrames(makeJob({ resolution, duration: MAX_DURATION }), tpl)).toBe(175);
+    }
   });
   test("--out / --record extensions", () => {
     expect(check({}, { out: "./o.mov", record: "./o.json" }).map((d) => d.field)).toEqual(["out"]);

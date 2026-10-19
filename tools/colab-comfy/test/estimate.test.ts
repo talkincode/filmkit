@@ -51,6 +51,29 @@ describe("estimateCU", () => {
     expect(two.cu).toBeGreaterThan(0.6 * 1.1);
   });
 
+  test("768x1024 scales by pixel count: 1024/1344 of the reference per frame", () => {
+    const e = estimateCU([job("p", "dense", 124, 768, 1024)], cfg, { gpu: "L4" });
+    expect(e.jobs[0]!.scale).toBe(0.7619); // 1024/1344, reported to 4 places
+    expect(e.jobs[0]!.genSec).toBeCloseTo(80 + 316 * (1024 / 1344), 1);
+    expect(estimateCU([job("l", "dense", 124, 1024, 768)], cfg, { gpu: "L4" }).jobs[0]!.scale).toBe(e.jobs[0]!.scale);
+  });
+
+  // EP04 H3 plan (weila-ep04/h3_plan.md): 13 clips at 768x1024, 1323 frames in total.
+  const EP04 = [107, 107, 124, 56, 56, 107, 124, 107, 73, 107, 124, 124, 107].map((f, i) => ({ f, id: `c${i}` }));
+  const ep04 = (variant: (i: number) => string) => EP04.map(({ f, id }, i) => job(id, variant(i), f, 768, 1024));
+  test("EP04 13 clips at 768x1024: A100 dense ~1.85 CU, VSA 0.75 ~1.74 CU; L4 ~2.1-2.3 CU", () => {
+    const dense = ep04(() => "dense");
+    expect(dense.reduce((a, j) => a + j.frames, 0)).toBe(1323);
+    const a100 = estimateCU(dense, cfg, { gpu: "A100" });
+    expect(Math.round(a100.totalSec)).toBe(1049);
+    expect(a100.cu).toBeCloseTo(1.853, 2);
+    expect(estimateCU(ep04(() => "vsa-0.75"), cfg, { gpu: "A100" }).cu).toBeCloseTo(1.738, 2);
+    // s01a-d dense, the rest VSA 0.75 (the plan's recommendation)
+    expect(estimateCU(ep04((i) => (i < 4 ? "dense" : "vsa-0.75")), cfg, { gpu: "A100" }).cu).toBeCloseTo(1.772, 2);
+    expect(estimateCU(dense, cfg, { gpu: "L4" }).cu).toBeCloseTo(2.277, 2);
+    expect(chooseGpu(dense, cfg, 99).gpu).toBe("A100");
+  });
+
   test("zero jobs cost nothing (no session)", () => {
     const e = estimateCU([], cfg, { gpu: "L4" });
     expect([e.cu, e.totalSec]).toEqual([0, 0]);

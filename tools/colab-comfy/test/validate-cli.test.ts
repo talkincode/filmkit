@@ -49,6 +49,15 @@ describe("colab-comfy validate", () => {
     expect(JSON.parse(r.stdout)).toMatchObject({ ok: true, node: "s1a", variant: "vsa-0.75", frames: 107, width: 704, height: 1280, refs: 1 });
   });
 
+  test("3:4 portrait (768x1024) and 4:3 landscape (1024x768)", async () => {
+    const portrait = await call({ resolution: "768x1024" }, ["--json"]);
+    expect(portrait.exitCode).toBe(0);
+    expect(JSON.parse(portrait.stdout)).toMatchObject({ ok: true, frames: 107, width: 768, height: 1024 });
+    const landscape = await call({ resolution: "1024x768" });
+    expect(landscape.exitCode).toBe(0);
+    expect(landscape.stdout.trim()).toBe("ok: s1a dense 1024x768 107f, 1 ref(s), 1 candidate(s)");
+  });
+
   test("sparsity 0 as the string filmkit passes it", async () => expect((await call({ sparsity: "0" })).exitCode).toBe(0));
 
   test("png + jpeg + webp refs are accepted", async () => {

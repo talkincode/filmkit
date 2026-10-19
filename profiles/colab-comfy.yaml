@@ -83,7 +83,8 @@ tasks:
           maximum: 6.6
           description: Seconds at 24 fps; rounded UP to the model's valid frame count (recorded).
         resolution:
-          enum: ["1344x768", "768x1344", "1280x704", "704x1280"]
+          enum: ["1344x768", "768x1344", "1280x704", "704x1280", "1024x768", "768x1024"]
+          description: WIDTHxHEIGHT; 16:9 / 9:16 (1344x768, 768x1344, 1280x704, 704x1280) or 4:3 / 3:4 (1024x768, 768x1024).
         sparsity:
           enum: [0, 0.5, 0.75]
           description: 0 = dense template; 0.5 / 0.75 = VSA gate template with that sparsity. Default 0.

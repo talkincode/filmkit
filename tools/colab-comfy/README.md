@@ -159,7 +159,10 @@ A100 benchmark, both 2026-10-18). The 1.2 margin stays on top. A GPU without an 
 
 This reproduces the measurements: L4 s1a / s3a / s4a 318 / 354 / 340 s per clip; A100 s1a 104 s first, 56 s warm. A100
 VSA values are scaled from the L4 ratios (only dense was measured on A100). Frames are `5 + 17k ≥ ceil(duration · 24)`;
-width/height are multiples of 32.
+width/height are multiples of 32. Allowed `resolution` values (Profile enum = `RESOLUTIONS` in `src/job.ts`): 16:9 / 9:16
+`1344x768`, `768x1344`, `1280x704`, `704x1280`; 4:3 / 3:4 `1024x768`, `768x1024`. The 3:4 / 4:3 sizes are ~24% fewer
+pixels than 1344×768 (scale 0.762 per frame) and stay under the pixel·frame cap (704×1280×158) at every allowed duration
+(6.6 s = 175 f). They are estimated with the same pixel-proportional formula; no 3:4 run has been measured yet.
 
 | Example (704×1280) | L4 | A100 | `auto` picks |
 |---|---|---|---|
@@ -168,6 +171,11 @@ width/height are multiples of 32.
 | 5 dense clips | 1.08 CU | 1.10 CU | L4 |
 | 6 dense clips | 1.27 CU | 1.22 CU | A100 |
 | 8 dense clips | 1.64 CU | 1.45 CU | A100 |
+
+| Example (768×1024) | L4 | A100 | `auto` picks |
+|---|---|---|---|
+| EP04 H3: 13 dense clips (1323 f) | 2.28 CU | 1.85 CU | A100 |
+| EP04 H3: 13 clips, VSA 0.75 | 2.09 CU | 1.74 CU | A100 |
 
 Actuals for comparison: the M8 L4 session (3 clips) settled at 0.51 CU against the old 0.75 estimate; the A100 benchmark
 (two s1a renders) settled at 0.60 CU, where the old table (L4 timings at 5.4 CU/h) would have said ~1.8 CU for one clip.
