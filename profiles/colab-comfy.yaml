@@ -46,6 +46,22 @@
 # render. Without `audio` the workflow is exactly the template's. It is NOT
 # taken from `produces.audio` automatically: declaring it is the opt-in.
 #
+# Task h3-fl2va (template h3-fl2va@1): the 李律 EP01 / 微辣 EP03 lip-sync
+# pipeline. MiniMax H3 FL2VA (pruned int8) + fl2v turbo 8-step LoRA; the clip
+# STARTS from `image` (the real first frame, stretched to the canvas: same
+# aspect ratio required) and the mouth is driven by `audio` (required WAV,
+# LoadAudio -> MiniMaxH3AddGuide frame 0, <= clip length). No refs, no VSA.
+#
+#         task: h3-fl2va
+#         params:
+#           template: h3-fl2va@1
+#           prompt: "<竖屏中景>首帧里同一位女性……用普通话对镜头说话，口型与配音同步……"
+#           image: ./media/kf/s1a.png     # first frame, same aspect as resolution
+#           audio: ./media/vo/h3/s1a.wav  # driving audio from frame 0
+#           seed: 20261017
+#           duration: 4.05
+#           resolution: 768x1024
+#
 # Candidates: set `candidates: 3`; batch renders seeds seed..seed+2; review the
 # printed cache paths; set `pick: <index>`; `filmkit run` copies the winner (no CU).
 apiVersion: filmkit/v1alpha1
@@ -53,7 +69,7 @@ kind: Profile
 metadata:
   name: colab-comfy
   version: "0.1"
-  description: ComfyUI API workflows on a Google Colab GPU, batched per session (MiniMax H3 Ref2VA + optional VSA gate).
+  description: ComfyUI API workflows on a Google Colab GPU, batched per session (MiniMax H3 Ref2VA + optional VSA gate; H3 FL2VA first frame + driving audio).
 runtime:
   type: cli
   binary: colab-comfy
@@ -147,5 +163,80 @@ tasks:
       - "--candidates=${params.candidates?}"
       - "--pick=${params.pick?}"
       - "--audio=${params.audio?}"
+      - "--out=${produces.video}"
+      - "--record=${produces.file}"
+  h3-fl2va:
+    description: MiniMax H3 FL2VA (first frame + driving audio, turbo 8-step) on Colab; lip sync as in 李律 EP01 / 微辣 EP03.
+    produces: [video, file]
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [template, prompt, image, audio, seed, duration, resolution]
+      properties:
+        template:
+          enum: [h3-fl2va@1]
+          description: Versioned template + pinned model manifest (fl2va pruned int8 + fl2v turbo 8-step LoRA).
+        prompt:
+          type: string
+          minLength: 1
+          description: Written by the agent (Chinese works best, as in EP01/EP03). Describe the person as in the first frame (首帧); no <Picture N>.
+        image:
+          type: string
+          pattern: "^\\.\\.?/"
+          description: The clip's first frame (film-relative PNG/JPEG/WebP). Stretched to the canvas, so it must have the resolution's aspect ratio.
+        audio:
+          type: string
+          pattern: "^\\.\\.?/"
+          description: Driving audio (film-relative RIFF/WAVE, the scene's VO segment) from frame 0, fed to MiniMaxH3AddGuide. Must not be longer than the generated clip.
+        seed:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        duration:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 6.6
+          description: Seconds at 24 fps; rounded UP to the model's valid frame count 5+17k (recorded).
+        resolution:
+          enum: ["1344x768", "768x1344", "1280x704", "704x1280", "1024x768", "768x1024"]
+          description: WIDTHxHEIGHT, same list as h3-ref2va. EP01/EP03 ran 704x1280.
+        candidates:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: Render seeds seed..seed+N-1 in the batch. Default 1.
+        pick:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: Winning candidate index; required by materialize when candidates > 1.
+    validate:
+      - colab-comfy
+      - validate
+      - "--node=${node.id}"
+      - "--template=${params.template}"
+      - "--prompt=${params.prompt}"
+      - "--image=${params.image}"
+      - "--audio=${params.audio}"
+      - "--seed=${params.seed}"
+      - "--duration=${params.duration}"
+      - "--resolution=${params.resolution}"
+      - "--candidates=${params.candidates?}"
+      - "--pick=${params.pick?}"
+      - "--out=${produces.video}"
+      - "--record=${produces.file}"
+    invocation:
+      - colab-comfy
+      - materialize
+      - "--node=${node.id}"
+      - "--template=${params.template}"
+      - "--prompt=${params.prompt}"
+      - "--image=${params.image}"
+      - "--audio=${params.audio}"
+      - "--seed=${params.seed}"
+      - "--duration=${params.duration}"
+      - "--resolution=${params.resolution}"
+      - "--candidates=${params.candidates?}"
+      - "--pick=${params.pick?}"
       - "--out=${produces.video}"
       - "--record=${produces.file}"

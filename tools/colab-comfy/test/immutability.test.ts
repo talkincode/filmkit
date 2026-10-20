@@ -7,7 +7,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { sha256File } from "../src/canonical.ts";
 import { TEMPLATES_ROOT } from "../src/workflow.ts";
-import { tpl, tpl2 } from "./support.ts";
+import { tpl, tpl2, tplF } from "./support.ts";
 
 const dir = join(TEMPLATES_ROOT, "h3-ref2va@1");
 
@@ -27,12 +27,13 @@ describe("template h3-ref2va@1 is frozen", () => {
 
   test("the loaded template reports the same file hashes", () => {
     expect(tpl.variants.dense.fileSha256).toBe(snapshot["dense.api.json"]!);
-    expect(tpl.variants.vsa.fileSha256).toBe(snapshot["vsa.api.json"]!);
+    expect(tpl.variants.vsa!.fileSha256).toBe(snapshot["vsa.api.json"]!);
     expect(tpl.bindingsSha256).toBe(snapshot["bindings.json"]!);
   });
 
   test("workflow invariants the bindings rely on", () => {
-    const { dense, vsa } = tpl.variants;
+    const { dense } = tpl.variants;
+    const vsa = tpl.variants.vsa!;
     // dense has no gate node; vsa wires 143 -> 144 -> 142 (the only structural difference, PLAN D5)
     expect(dense.workflow["144"]).toBeUndefined();
     expect(dense.workflow["142"]!.inputs.model).toEqual(["143", 0]);
@@ -49,7 +50,7 @@ describe("template h3-ref2va@1 is frozen", () => {
   });
 
   test("object_info snapshot carries the M0 constraints", () => {
-    const c = tpl.objectInfo.classes;
+    const c = tpl.objectInfo.classes as any;
     expect(c.MiniMaxH3ReferenceToVideo.inputs.length).toEqual({ min: 5, max: 3600, step: 17, type: "INT" } as never);
     expect(c.MiniMaxH3ReferenceToVideo.inputs.width).toMatchObject({ min: 32, step: 32 });
     expect(c.MiniMaxH3ReferenceToVideo.inputs.height).toMatchObject({ min: 32, step: 32 });
@@ -78,7 +79,7 @@ describe("template h3-ref2va@2 is frozen", () => {
 
   test("same workflows, models and pins as @1; only the audio guide is new", () => {
     expect(tpl2.variants.dense.workflow).toEqual(tpl.variants.dense.workflow);
-    expect(tpl2.variants.vsa.workflow).toEqual(tpl.variants.vsa.workflow);
+    expect(tpl2.variants.vsa!.workflow).toEqual(tpl.variants.vsa!.workflow);
     expect({ ...tpl2.manifest, template: "x" }).toEqual({ ...tpl.manifest, template: "x" });
     expect(tpl2.manifest.template).toBe("h3-ref2va@2");
     const { audioGuide, template, ...rest2 } = tpl2.bindings;
@@ -91,6 +92,28 @@ describe("template h3-ref2va@2 is frozen", () => {
       consumer: ["11", "conditioning"], frameIdx: 0, requiredClasses: ["LoadAudio", "MiniMaxH3AddGuide"],
     });
     // the guide's audio VAE input is the H3 audio VAE in both variants
-    for (const v of [tpl2.variants.dense, tpl2.variants.vsa]) expect(v.workflow["5"]!.inputs.vae_name).toBe("minimax_h3_audio_vae_fp32.safetensors");
+    for (const v of [tpl2.variants.dense, tpl2.variants.vsa!]) expect(v.workflow["5"]!.inputs.vae_name).toBe("minimax_h3_audio_vae_fp32.safetensors");
+  });
+});
+
+// h3-fl2va@1 = the 李律 EP01 / 微辣 EP03 workflow (fl2va pruned int8 + fl2v turbo 8-step LoRA, first frame +
+// LoadAudio -> MiniMaxH3AddGuide). Frozen from its first release: any change means h3-fl2va@2.
+describe("template h3-fl2va@1 is frozen", () => {
+  const dirF = join(TEMPLATES_ROOT, "h3-fl2va@1");
+  const snapshot: Record<string, string> = {
+    "bindings.json": "259d423d0b334c5b2d9e888fb6e415ee40af2be8572a71b23547e3e6837a2600",
+    "fl2va.api.json": "d06bd58138de7a76b2d3cf4ef29b5d37014bd3f835206715dbfa69958f2c0372",
+    "manifest.json": "98e57d356a768bcfb5ab7f45a070a5b55e3db8c42ec8bda5628d01473d43e7db",
+    "object_info.snapshot.json": "a2e0771c8d6774150a864225c423457c09c611bc3d71ba5ca99f262d6620c8ae",
+  };
+
+  test("exactly these files, with exactly these hashes", () => {
+    expect(readdirSync(dirF).sort()).toEqual(Object.keys(snapshot));
+    for (const [file, sha] of Object.entries(snapshot)) expect([file, sha256File(join(dirF, file))]).toEqual([file, sha]);
+  });
+
+  test("the loaded template reports the same file hashes", () => {
+    expect(tplF.variants.dense.fileSha256).toBe(snapshot["fl2va.api.json"]!);
+    expect(tplF.bindingsSha256).toBe(snapshot["bindings.json"]!);
   });
 });

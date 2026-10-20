@@ -75,3 +75,33 @@ export function fakeWav(seconds: number, tag = "", rate = 24000, channels = 1): 
   h.writeUInt32LE(data.length, 40);
   return Buffer.concat([h, data]);
 }
+
+/** h3-fl2va@1: FL2VA first frame + driving audio (李律 EP01 / 微辣 EP03 pipeline). */
+export const tplF: Template = loadTemplate("h3-fl2va@1");
+
+/** A PNG header with a real IHDR (width x height): enough for the magic-byte and aspect checks. */
+export function fakePngSized(width: number, height: number, tag = ""): Buffer {
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write("IHDR", 4);
+  ihdr.writeUInt32BE(width, 8);
+  ihdr.writeUInt32BE(height, 12);
+  ihdr[16] = 8; // bit depth
+  ihdr[17] = 6; // RGBA
+  return Buffer.concat([PNG_MAGIC, ihdr, Buffer.from(tag)]);
+}
+
+export const FL2VA_JOB = {
+  node: "s01a",
+  template: "h3-fl2va@1",
+  prompt: "<竖屏中景>首帧里同一位女性正面看着镜头，用普通话说话，口型与配音同步。",
+  image: "./kf/s01a.png",
+  audio: "./vo/s01a.wav",
+  seed: 20261019,
+  duration: 3.86,
+  resolution: "768x1024",
+} as const;
+
+export function makeFl2vaJob(over: Record<string, unknown> = {}): Job {
+  return normalizeJob({ ...FL2VA_JOB, ...over });
+}

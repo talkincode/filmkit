@@ -74,8 +74,8 @@ describe("estimateCU", () => {
     expect(chooseGpu(dense, cfg, 99).gpu).toBe("A100");
   });
 
-  test("audio guide: warm time x audioGuide.warmFactor (1.03, uncalibrated); init and fixed costs unchanged", () => {
-    expect(cfg.audioGuide).toMatchObject({ warmFactor: 1.03, calibrated: false });
+  test("audio guide: warm time x audioGuide.warmFactor (1.03, measured on A100); init and fixed costs unchanged", () => {
+    expect(cfg.audioGuide).toMatchObject({ warmFactor: 1.03, calibrated: true });
     const plain = estimateCU([job("p", "dense", 107, 768, 1024)], cfg, { gpu: "A100" });
     const guided = estimateCU([{ ...job("p", "dense", 107, 768, 1024), audioGuide: true }], cfg, { gpu: "A100" });
     const warm = 61 * (768 * 1024 * 107) / (1344 * 768 * 124);

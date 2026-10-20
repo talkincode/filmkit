@@ -15,7 +15,7 @@ import { sha256File } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { estimateCU, loadEstimates } from "./estimate.ts";
 import { DEFAULT_GPU, decide } from "./gate.ts";
-import { jobFrames, normalizeJob, resolveInputs, validateJob, variantKey } from "./job.ts";
+import { estimateKey, jobFrames, normalizeJob, resolveInputs, usesAudioGuideSplice, validateJob, variantKey } from "./job.ts";
 import { buildRecord } from "./record.ts";
 import { loadTemplate } from "./workflow.ts";
 
@@ -85,7 +85,7 @@ export async function materialize(o: MaterializeOptions): Promise<{ report: Mate
   // Step 3: cache miss.
   if (!cacheHit(o.cwd, winner.key)) {
     const frames = jobFrames(job, tpl);
-    const jobEstimate = { node: job.node ?? "job", candidate: winner.index, variant: variantKey(job), width: job.width, height: job.height, frames };
+    const jobEstimate = { node: job.node ?? "job", candidate: winner.index, variant: estimateKey(job, tpl), width: job.width, height: job.height, frames, audioGuide: usesAudioGuideSplice(job, tpl) };
     const est = estimateCU([jobEstimate], loadEstimates(), { gpu: DEFAULT_GPU });
     const id = job.node ?? "<id>";
     if (!truthy(o.env.COLAB_COMFY_YES)) {
