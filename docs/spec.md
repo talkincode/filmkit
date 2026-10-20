@@ -427,6 +427,23 @@ tasks:
 
 **产物落位**：先写 `<produces 路径>.part` 再 rename，失败不留半成品——与 ffmpeg 输出同一条规则。
 
+### 3.6 凭据解析与内置保险库 (`filmkit vault`)
+
+为保障 API 密钥与敏感凭据不在项目目录、代码仓库、lock 账本或进程参数中泄漏，filmkit 提供用户级加密凭据保险库：
+
+1. **存储格式与加密**：存储于 `~/.filmkit/vault.enc`（AES-256-GCM，文件权限 0600，目录权限 0700）。主密钥优先存储于系统 Keychain（macOS `security`，服务名 `filmkit-vault`，账号 `master-key`），在无头环境、非 macOS 或指定 `FILMKIT_HOME` 测试时自动回退至 `~/.filmkit/vault.key`（文件权限 0600）。
+2. **凭据解析优先级（`requires.env`）**：
+   - 优先：宿主进程环境变量（`process.env[NAME]`，非空）。
+   - 次优：保险库解密环境变量（`vault.enc` 中的对应项）。
+   - 若两者均未提供，`doctor` 报告未设置；执行需要该变量的任务时在发起调用前失败（退出 3）。
+3. **安全操作接口**：
+   - `filmkit vault set <NAME>`：仅接受标准输入（stdin）或终端隐藏输入，严禁作为 argv 传入（防 ps 窥探）。
+   - `filmkit vault import <file>`：从 `.env` 格式文件批量导入密钥。
+   - `filmkit vault list`：仅展示已存储的键名与更新时间，绝不暴露密钥内容。
+   - `filmkit vault delete <NAME>`：从保险库删除指定键。
+   - 绝不提供明文读取/导出命令。
+4. **注入边界**：保险库解密出的环境变量仅在执行子进程时（`exec()` 调用的 CLI 工具以及 `run` 启动的 `http-worker`）注入子进程 `env`。
+
 ## 4. `kind: Lock` — `filmkit.lock.yaml`
 
 由 `status` / `run` / `build` 写入，原子替换。内容完全由输入决定（无时间戳）。

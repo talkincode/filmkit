@@ -6,7 +6,13 @@ description: >
   render a video from scenes (images, clips, narration, subtitles, music) via
   a filmkit.yaml, when a project already contains filmkit.yaml, or when the
   user mentions filmkit, a video orchestration file, scene timeline, or
-  composing generated assets into a final MP4 without a GUI. When the user is
+  composing generated assets into a final MP4 without a GUI. Also use it when
+  the user has only a topic or idea for a video and wants help developing the
+  script: it leads an interactive interview (directions, hooks, visual style,
+  characters and references, shot list, transitions, voice, cover, copyright)
+  designed around what filmkit's tools can actually produce, and onboards users
+  who just installed filmkit and do not yet know what local models, CLI tools,
+  or APIs they have or should set up. When the user is
   preparing a video for publication, plan for a separate platform cover or
   thumbnail image as well; it is not the same as an opening title card. Not for
   creating the individual assets themselves (use the tool's own skill:
@@ -73,9 +79,47 @@ Two gaps doctor cannot see, worth checking yourself when symptoms match:
   in doctor's list; without them text and captions must go through
   `imagine text` PNGs (see below) — say so when reporting impact.
 
+**New user or fresh install with no idea what tools/models/APIs to use?**
+`filmkit doctor` in a freshly initialized project only checks `ffmpeg` and the
+builtin Profiles (`filmkit/static`, `filmkit/ffmpeg`), so a green result does
+*not* mean TTS, image or video tools are installed. When the user just
+installed filmkit, asks what environment/models/API keys they need, or has missing
+tools in `doctor`, read
+[references/environment-onboarding.md](references/environment-onboarding.md):
+probe their machine (OS/chip, RAM, installed binaries, set env vars without
+printing values), ask what accounts/keys they already have, recommend the
+matching Starter Kit (Tier 0 builtin-only, Tier A 100% free local on Apple
+Silicon, Tier B local + AI images, Tier C AI video via Colab/Gemini/Seedance),
+and walk them through the step-by-step setup recipes.
+
+### Storing credentials securely with `filmkit vault`
+
+External tools and HTTP APIs often require sensitive credentials (e.g. `ARK_API_KEY`, `GEMINI_API_KEY`).
+**Never write secrets to project directories, `.env` files inside git repositories, or pass them on command-line arguments.**
+filmkit provides a built-in user-level encrypted vault (`~/.filmkit/vault.enc`, AES-256-GCM):
+
+```bash
+# Store a key via stdin (never leaks into shell history or ps)
+echo "sk-..." | filmkit vault set ARK_API_KEY
+
+# Import existing secrets from a .env file
+filmkit vault import ~/.secrets.env
+
+# List stored key names (never prints values)
+filmkit vault list
+
+# Delete a stored secret
+filmkit vault delete ARK_API_KEY
+```
+
+Keys stored in the vault are loaded into memory and injected directly into child processes at runtime (`filmkit run` and `filmkit doctor`).
+Precedence: ambient shell environment (`process.env[NAME]`) > encrypted vault.
+
 ## Core loop
 
-Start every session at **Setup check** above — never work blind. Then:
+Start every session at **Setup check** above — never work blind. If the user
+has only a topic or idea and no script yet, develop the script first (see
+"From idea to script" below), then:
 
 1. **Start a project**: `filmkit init <dir>` writes a `filmkit.yaml` that
    validates and builds as-is (two placeholder cards + generated sine BGM).
@@ -114,6 +158,32 @@ Start every session at **Setup check** above — never work blind. Then:
    mismatch nothing is written to the target path.
 7. **Check**: `filmkit status` writes `filmkit.lock.yaml` and shows which
    produces exist and whether the build is up to date.
+
+## From idea to script (interactive)
+
+When the user brings a topic or idea ("我想做一个关于…的视频") rather than a
+finished script, lead an interview before writing any YAML. Read
+[references/script-development.md](references/script-development.md) and
+follow it; in short:
+
+- **Stages**: intake + toolbox scan → topic analysis and 3 directions →
+  structure and hooks → visual style → characters, props and reference images
+  → shot list → transitions and rhythm → voice audition → music, subtitles and
+  on-screen text → cover, credits and copyright → final script → hand-off to
+  `filmkit.yaml`.
+- **Protocol**: one decision at a time, 2–4 options with your recommendation
+  first and the reason it fits *this* toolbox; record every decision in
+  `script/bible.md` so another agent can resume. Three hard gates the user
+  must pass: the direction, the final script, and the storyboard before any
+  paid run.
+- **Design inside the toolbox.** Check every shot against the reference's
+  "Toolbox limits" table while it is still words: only `cut` / `crossfade`
+  between scenes, stills do not move, per-tool duration/aspect caps,
+  reference-image support per route, one narration audio per scene, libass
+  and resvg prerequisites for text.
+- The creative decisions are yours and the user's; filmkit only receives
+  them as scenes, `intent`, `params`, asset `license` values and
+  `metadata.annotations` — and still never writes copy or prompts itself.
 
 ## Publishing cover — a separate image deliverable
 

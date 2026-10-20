@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { exec, isOnPath } from "./exec.ts";
 import type { LoadedFilm } from "./film.ts";
 import { BUILTIN_PROFILE_NAMES } from "./profile.ts";
+import { effectiveEnv } from "./vault.ts";
 import { VERSION } from "./version.ts";
 
 export interface DoctorReport {
@@ -82,11 +83,12 @@ export function doctor(loaded: LoadedFilm | undefined, cwd: string): DoctorRepor
   } else problems.push("ffmpeg not found on PATH");
   if (!ffprobeFound) problems.push("ffprobe not found on PATH");
 
+  const eff = effectiveEnv();
   const profiles: DoctorReport["profiles"] = [];
   for (const p of loaded?.profiles.values() ?? []) {
     const rt = p.profile.runtime;
     const binaries = [...(rt.binary ? [rt.binary] : []), ...(rt.requires?.binaries ?? [])].map((name) => ({ name, found: isOnPath(name) }));
-    const env = (rt.requires?.env ?? []).map((name) => ({ name, set: process.env[name] !== undefined && process.env[name] !== "" }));
+    const env = (rt.requires?.env ?? []).map((name) => ({ name, set: eff[name] !== undefined && eff[name] !== "" }));
     let healthcheck: DoctorReport["profiles"][number]["healthcheck"];
     // A tool installed inside a project directory (a Remotion project's node_modules)
     // only answers from there, so the Profile can pin the healthcheck's cwd.

@@ -4,7 +4,7 @@
 import { parseArgs } from "node:util";
 import { build } from "./build/index.ts";
 import { doctor, formatDoctor } from "./doctor.ts";
-import { FilmkitError, formatDetail } from "./errors.ts";
+import { FilmkitError, formatDetail, invalid } from "./errors.ts";
 import { loadFilm } from "./film.ts";
 import { importScript } from "./import-script.ts";
 import { init } from "./init.ts";
@@ -14,9 +14,10 @@ import { runNode } from "./run.ts";
 import { SCHEMAS } from "./schema.ts";
 import { formatStoryboard, writeStoryboard } from "./storyboard.ts";
 import { formatStatus, writeStatus } from "./status.ts";
+import { vaultDelete, vaultImport, vaultList, vaultSet } from "./vault.ts";
 import { VERSION } from "./version.ts";
 
-export const COMMANDS = ["init", "schema", "validate", "plan", "storyboard", "run", "build", "status", "doctor", "import", "help"] as const;
+export const COMMANDS = ["init", "schema", "validate", "plan", "storyboard", "run", "build", "status", "doctor", "import", "vault", "help"] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export const HELP = `filmkit — agent-oriented video orchestration compiler
@@ -37,6 +38,10 @@ Commands:
   doctor                Check ffmpeg/ffprobe and every referenced Profile's requirements
   import script <notes.md> [--out filmkit.yaml] [--force]
                         Convert a knowledge-script markdown file into filmkit.yaml
+  vault set <NAME>      Store secret in encrypted vault (reads from stdin or prompt)
+  vault import <file>   Import secrets from a .env file into the vault
+  vault list            List stored secret names and update times
+  vault delete <NAME>   Remove a secret from the encrypted vault
   help                  Show this help
 
 Options:
@@ -200,6 +205,47 @@ function dispatch(command: Command, rest: string[], v: Values): { json: unknown;
       // The report is the useful part even when something is missing, so it goes
       // to stdout; the exit code carries the verdict (3 = missing dependency).
       return { json: r, text: formatDoctor(r), exitCode: r.ok ? 0 : 3 };
+    }
+    case "vault": {
+      const sub = rest[0];
+      if (!sub) {
+        throw new FilmkitError(invalid("vault requires a subcommand: set, import, list, delete\n\nSee: filmkit help"));
+      }
+      if (sub === "list") {
+        const keys = vaultList();
+        const lines = keys.length
+          ? [
+              "NAME".padEnd(30) + "UPDATED",
+              ...keys.map((k) => `${k.name.padEnd(30)}${k.updatedAt}`),
+            ]
+          : ['vault is empty (use "filmkit vault set <NAME>" to store secrets)'];
+        return { json: { keys }, text: lines.join("\n") };
+      }
+      if (sub === "set") {
+        const keyName = rest[1];
+        if (!keyName) throw new FilmkitError(invalid("vault set requires a secret name: filmkit vault set <NAME>"));
+        const extra = rest.slice(2);
+        const r = vaultSet(keyName, extra);
+        return { json: r, text: `stored "${r.name}" in vault` };
+      }
+      if (sub === "import") {
+        const file = rest[1];
+        if (!file) throw new FilmkitError(invalid("vault import requires a file path: filmkit vault import <file>"));
+        const r = vaultImport(file);
+        return {
+          json: r,
+          text: r.imported.length
+            ? `imported ${r.imported.length} secret(s) from ${file}: ${r.imported.join(", ")}`
+            : `no secrets found to import in ${file}`,
+        };
+      }
+      if (sub === "delete") {
+        const keyName = rest[1];
+        if (!keyName) throw new FilmkitError(invalid("vault delete requires a secret name: filmkit vault delete <NAME>"));
+        const r = vaultDelete(keyName);
+        return { json: r, text: `deleted "${r.deleted}" from vault` };
+      }
+      throw new FilmkitError(invalid(`unknown vault subcommand "${sub}": must be set, import, list, or delete`));
     }
     case "help":
       return { json: { help: HELP }, text: HELP };
