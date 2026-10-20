@@ -6,6 +6,10 @@ changing the protocol.
 
 ## Unreleased
 
+- **Deprecate and remove `filmkit import hyperstory`.** The legacy Hyperstory Video Composition
+  Schema importer has been removed in favour of `filmkit import script` and standard filmkit
+  orchestration. Invoking `filmkit import hyperstory` now fails with exit code 2 (`invalid-input`)
+  and a helpful hint pointing to `script`.
 - **`colab-comfy`: 3:4 / 4:3 sizes.** `h3-ref2va` now also accepts `resolution: 768x1024` and
   `1024x768` (Profile enum and `RESOLUTIONS` in `tools/colab-comfy/src/job.ts`; a test keeps the two
   lists identical). Both fit the pixel·frame cap at every allowed duration; CU is estimated with the

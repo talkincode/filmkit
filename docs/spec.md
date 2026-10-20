@@ -491,8 +491,7 @@ build:                         # 仅 build 成功后
 | `build [--draft]` | 同上 | 中间片段, 成片, filtergraph, srt, chapters.txt, lock | |
 | `status` | 同上 | lock | |
 | `doctor` | profiles | — | 另报告 `asplit` / `sidechaincompress` / `subtitles` 滤镜是否可用（只在 film 用到 duck / burn 时才判为问题） |
-| `import hyperstory <schema.json> [--out <path>] [--force]` | hyperstory schema | 新的 filmkit.yaml | 单向导入，见 §8 |
-| `import script <notes.md> [--out <path>] [--force]` | 口播稿 markdown | 新的 filmkit.yaml | 单向导入，见 §9 |
+| `import script <notes.md> [--out <path>] [--force]` | 口播稿 markdown | 新的 filmkit.yaml | 单向导入，见 §8（原 `hyperstory` 已废弃移除） |
 
 ### 6.1 `plan` 输出
 
@@ -593,24 +592,9 @@ build:                         # 仅 build 成功后
 
 语义：`fit: exact` 用于"音乐段落边界对齐画面剪辑点"。素材本身仍由 `build` 归一化（重采样、声道、按 `[from, to)` 裁切）。
 
-## 8. `import hyperstory`
+## 8. `import script`
 
-`filmkit import hyperstory <schema.json>` 单向转换 Hyperstory 的 Video Composition Schema（见 `skills/hyperstory/references/video-composition-schema.md`），写出新的 `filmkit.yaml`：
-
-| 输入 | 输出 |
-| --- | --- |
-| `title` / `render` / `defaults.imageFit` | `metadata.title` / `output.video` / `output.fit` |
-| `cover` + `coverDuration` | 首个场景（`durationPolicy: exact`，`produces.image`） |
-| `scenes[].image` / `video` / `voice` / `subtitle` | 对应 `produces`（`impl: filmkit/static`） |
-| `scenes[].duration`（+ 有旁白） | `duration` 与 `durationPolicy: min`；无旁白且无视频时 `exact`；有视频无旁白时 `auto` |
-| `scenes[].description` / `action` / `caption` / `voiceText` | `intent` |
-| `audio.bgm` / `audio.voiceMap` | `assets` + 一条 `fit: loop` 音频轨 |
-| `defaults.bgmVolume` / `bgmFadeOutDuration` | 该轨的 `volume` / `fadeOut` |
-| 存在字幕 | 一条 `sidecar` 字幕轨 |
-
-无法表达的字段（视觉/字幕/运动/转场风格、`videoPrompt`、`videoInstruct`、`voiceSpeed`、`videoAudio.volume`、计划总时长）写入 `metadata.annotations` 并在导入报告中逐条 warning；**不猜测任何工具的参数字段**。目标文件已存在时拒绝写入，除非 `--force`。导入结果 MUST 立即能被 `plan` 使用（引用文件缺失只出现在 `missingFiles`）。
-
-## 9. `import script`
+> **废弃说明**：早期用于单向转换 Hyperstory 的 `filmkit import hyperstory <schema.json>` 现已废弃并移除。尝试调用将直接返回退出码 `2`（`invalid-input`）并提示使用支持的导入格式（如 `script`）。
 
 `filmkit import script <notes.md>` 把知识口播稿（markdown）单向转换为新的 `filmkit.yaml`：
 

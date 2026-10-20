@@ -39,10 +39,10 @@ bun ../bin/filmkit.ts build         # ffmpeg 合成并用 ffprobe 校验 output
 bun ../bin/filmkit.ts status
 ```
 
-已有 Hyperstory 项目时可以直接转换：
+已有口播稿时可以直接转换：
 
 ```bash
-bun bin/filmkit.ts import hyperstory ./schema.json --out filmkit.yaml
+bun bin/filmkit.ts import script ./notes.md --out filmkit.yaml
 bun bin/filmkit.ts plan          # 列出还缺的文件与需要产出的场景
 ```
 

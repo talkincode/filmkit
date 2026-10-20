@@ -6,7 +6,7 @@
 
 filmkit 是一个 **Agent 导向的视频编排编译器**。Agent 用一份 YAML 编排文件（`filmkit.yaml`）声明一部视频：项目元数据、场景序列与时间轴、每个场景由哪个工具怎么实现、产物落在哪里、成片是什么规格。各场景的素材由 Agent 调用外部工具（HyperFrames、Seedance、TTS、scorekit、ffmpeg……）产出；filmkit 负责校验编排、推导时间轴、给出工作单、执行可模板化的命令行工具，最后把全部产物归一化、按时间轴拼接、混音、叠字幕水印，编码成满足规格的成片。全程命令行，无 GUI，是一条流水线而不是一个编辑器。
 
-它服务的用户是编码 Agent 及其背后的人：让“做一支视频”从“读一堆 skill 的 prose、手拼 ffmpeg 命令、靠肉眼校对”变成“写一份可校验的文件、按工作单产出素材、跑一次 build”。它填补的是现有 skill 生态的缺口：`hyperstory`、`legal-visual-director`、`video-story-producer` 各自维护互不兼容的中间格式，工具绑定靠自然语言，校验靠 Agent 自查，任意一个 Agent 都无法接手另一个 Agent 半途的项目。
+它服务的用户是编码 Agent 及其背后的人：让“做一支视频”从“读一堆 skill 的 prose、手拼 ffmpeg 命令、靠肉眼校对”变成“写一份可校验的文件、按工作单产出素材、跑一次 build”。它填补的是现有 skill 生态的缺口：`legal-visual-director`、`video-story-producer` 各自维护互不兼容的中间格式，工具绑定靠自然语言，校验靠 Agent 自查，任意一个 Agent 都无法接手另一个 Agent 半途的项目。
 
 已确立的技术边界：Bun + TypeScript 实现 CLI；ffmpeg/ffprobe 是唯一硬性外部依赖；协议格式为 YAML，由 JSON Schema 描述。设计基因与同作者的 [scorekit](https://github.com/talkincode/scorekit) 一致——编译器而非生成器、确定性输出、`--json` 机器可读错误、统一退出码、`schema`/`doctor` 子命令、拒绝未知字段。
 
@@ -102,7 +102,7 @@ timeline:
 - **init**：可直接 `validate` → `run bgm` → `build` 出片的骨架（`src/init.ts`）。
 - **filmkit skill**：`skills/filmkit/SKILL.md`；`scripts/check-skill-cli.ts` 守护其与 CLI `--help` 一致。
 - **音乐卡点（`fit: exact`）**：`filmkit/cues-v1` 中立段落文件（`src/cues.ts`）+ 切点对齐校验（转场取中点，容差默认 0.05s，可按轨覆盖）；`validate` 与 `build` 都执行。切点定义与规则见 `docs/spec.md` §7。
-- **`import hyperstory`**：Video Composition Schema → 新 filmkit.yaml（`src/import.ts`）；无法表达的字段写入 `metadata.annotations` 并逐条 warning；默认拒绝覆盖已存在的 film。
+- **`import hyperstory`（已废弃移除）**：早期作为 Video Composition Schema 迁移验证，现已废弃并移除，CLI 尝试调用时明确拦截并提示已废弃；单向导入由 `import script` 提供。
 - **qwentts 集成**：随仓库分发 `profiles/qwentts.yaml`（`speak` task：CustomVoice 预置音色 + 情绪力度、Base 参考音频克隆、VoiceDesign 文本描述建声）。`doctor` 用工具自带的 `--print-models` 做廉价体检（不加载模型）；模型权重缺失由工具在 `run` 时以自己的提示暴露。真实端到端：`scripts/e2e-qwentts.sh`。
 - **旁白与字幕链**：`scenes[].audio`（场景引用独立 TTS 节点产出的旁白，形成隐式依赖）+ `tracks[].kind: subtitles` 的 `source` 可以是资产名（整片 SRT 按原时间轴使用）。配套 `profiles/hyperframes.yaml` 的 `tts` / `transcribe` / `subtitles` / `matte-image` 四个 task（本地模型、无需云端凭据），以及"被交给某目录的工具不会因为兄弟节点写入而变 stale"的输入哈希规则。真实端到端：`scripts/e2e-hyperframes.sh --narration`。
 - **HyperFrames 集成**：随仓库分发 `profiles/hyperframes.yaml`（`render` task：composition → 片段，`--variables-file` 走 `./` 路径参数，存在性 + 内容哈希 + 绝对路径）。`validate` 委托给工具自己的 `hyperframes check`（lint + runtime + layout + motion + 对比度，一次浏览器会话 ≈8s），`exitCodes` 保持字面语义（1 = 工具失败，hint 里带工具发现的问题）。协议侧只加了 `healthcheckExpect.select`：`doctor --json` 永远退出 0，且它的 `ok=false` 可能只反映可选能力（TTS/BGM/whisper），所以要挑出真正决定渲染的检查（Chrome）。真实端到端脚本：`scripts/e2e-hyperframes.sh`；stub 测试：`tests/hyperframes.test.ts`。
@@ -135,7 +135,7 @@ timeline:
 11. **`filmkit doctor`** — ffmpeg/ffprobe 版本与能力（如 libass、xfade）；按项目引用的 Profile 探测二进制与环境变量是否就位，并委托 Profile `healthcheck`；从不打印环境变量的值。
 12. **`filmkit schema [--profile]`** — 导出 Film / Profile 的 JSON Schema。
 13. **`filmkit init`** — 项目骨架、内置 Profile、示例编排文件。
-14. **`filmkit import hyperstory <schema.json>`** — 单向导入现有 Video Composition Schema，导入结果必须通过 `validate`。
+14. **`filmkit import hyperstory`（已废弃移除）** — 早期作为单向导入现有 Video Composition Schema，现已废弃移除；CLI 明确拦截并引导至 `import script`。
 21. **`filmkit storyboard`** — 分镜评审表（Storyboard Sheet）：从编排文件 + 当前产物状态推导规则 JSON（`build/storyboard.json`，`--json` 时与 stdout 逐字节一致），经内置 HTML 模板渲染为单文件静态预览 `build/storyboard.html`：等比时间轴条、逐镜卡片（时间窗、status/blocked 印章、intent、params、executor）、图片内联预览、音频/视频片段原生回放、字幕文本内联、缺失产物显式占位、资产/轨道/缺失文件分区。纯观察：不执行工具、不委托 task `validate`、不写 lock、无时间戳（确定性）、`.tmp`+rename 原子落位失败无半成品。配套 skill 流程：付费生成前逐镜校对——默认与用户确认；用户明确不需要确认时 Agent 内部评审，但仍保留 HTML 供后续人工预览。协议见 `docs/spec.md` §6.3。
 20. **qwentts 集成** — 随仓库分发的 `profiles/qwentts.yaml`：`speak`（文本 → 旁白音频），覆盖三条路线（CustomVoice 预置音色 + `emotionIntensity`/`instruct`；`model: base` + `referenceAudio`/`refText` 克隆；`voice-design` 用描述建声），参数收口到 `paramsSchema`。模型权重、`QWEN3_TTS_HOME`/`QWEN3_TTS_MODELS_DIR` 运行时与私人音色库都由工具自己管理（Profile 头部照 qwentts README 写明安装步骤），filmkit 只声明 binary 与 `--print-models` 体检。
 19. **旁白与字幕链** — 文本 → 语音 → 转录 → SRT → 成片，全程本地工具。协议侧：`scenes[].audio` 引用旁白资产（与 `produces.audio` 互斥，形成隐式依赖）；字幕轨 `source` 支持整片 SRT 资产；`./` 路径参数指向另一节点的产物时自动成为依赖而不是"缺失文件"；目录哈希跳过所有已声明产物。Profile 侧：`tts`（Kokoro）、`transcribe` + `subtitles`（两段式，因为工具要两步）、`matte-image`（抠像出 alpha PNG）。
@@ -167,7 +167,7 @@ timeline:
 
 ## 方向与意图
 
-- **让现有 skill 消费 filmkit 格式。** `hyperstory`、`legal-visual-director`、`video-story-producer` 各自的中间格式收敛到 filmkit 编排文件，各 skill 只保留创意与领域规则。服务于“任意 Agent 都能接手”的画像；`import hyperstory` 是第一步。
+- **让现有 skill 消费 filmkit 格式。** `legal-visual-director`、`video-story-producer` 各自的中间格式收敛到 filmkit 编排文件，各 skill 只保留创意与领域规则。服务于“任意 Agent 都能接手”的画像；`import script` 是单向导入的范例。
 - **音乐与画面的结构性同步。** 从 `fit: loop` 到 `fit: exact` 卡点，再到基于分轨（stems）的按场景静音/让路（旁白段落压鼓组）。服务于“没有 GUI 也能做到 GUI 里要手拖的事”。`tracks[].stems` 为此预留位置，首批不实现。
 - **MCP 面。** 与 scorekit 一致，`filmkit mcp` 用 stdio 包装每个 CLI 命令，让不便调用 shell 的 Agent 也能用。方向明确，非首批。
 - **更多内置无依赖 Profile。** 在不违反“不自研处理”铁律的前提下，用 ffmpeg 覆盖常见的纯 ffmpeg 场景（Ken Burns、字幕卡、纯色垫片），扩大“零外部生成工具也能出片”的范围。
@@ -213,7 +213,7 @@ timeline:
 | 11. doctor | 低 | ✅ | ✅ 缺二进制 / 缺 env → 退出 3，且不打印 env 值 | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "doctor" 两例 |
 | 12. schema 导出 | 低 | ✅ 三份 Schema 可被 Draft 2020-12 校验器编译 | 不适用（无失败分支） | 不适用 | 不适用（只读） | `tests/pipeline.test.ts` "schema exports load" |
 | 13. init | 中 | ✅ 骨架直接 validate/run/build 通过 | ✅ 非空目录拒绝 | 不适用 | ✅ 拒绝时不写任何文件 | `tests/pipeline.test.ts` "init + schema" |
-| 14. import hyperstory | 中 | ✅ schema → filmkit.yaml → plan → 补齐文件 → validate → build 出片 | ✅ 空 scenes / 无时长 / 无图无视频 / 未知 kind / 文件不存在 / 拒绝覆盖 | 不适用 | ✅ 目标已存在时拒绝写入且不修改原文件；`--force` 才覆盖 | `tests/import.test.ts` 五例 |
+| 14. import 命令与 hyperstory 废弃 | 低 | ✅ import script 完整走通（`tests/import.test.ts`、`tests/knowledge.test.ts`） | ✅ hyperstory 调用明确拦截并返回退出码 2 且提示废弃 / 缺少参数 / 未知 kind | 不适用 | 不适用（只读） | `tests/import.test.ts` 五例 |
 | 21. storyboard 分镜评审（JSON + 静态 HTML） | 中 | ✅ 规则 JSON（状态/href/探测时长/字幕文本/汇总）+ HTML 预览与回放、缺产物占位、时间轴锚点；与 plan 时间轴同源、逐字节确定、不写 lock | ✅ 非法 film → 退出 2 零产物；写入目标被占 → 退出 1 无 `.tmp` 残留、无半成品 | 不适用 | ✅ 失败后已有产物与 lock 逐字不变（tmp+rename，两次失败路径均断言） | `tests/storyboard.test.ts` 五例 |
 | 16. Remotion 集成（render / still + cwd + 可选占位符 + 输入哈希） | 高 | ✅ stub 全链路（validate→plan→run→build）与真实 Remotion 端到端（`scripts/e2e-remotion.sh`） | ✅ cwd 缺失/逃出项目 / 未声明参数名 / 缺 props / 错 flag | 不适用 | ✅ run 失败无产物残留、lock 不变（沿用 run 的恢复路径） | `tests/remotion.test.ts` 八例；`scripts/e2e-remotion.sh`（真实 Remotion 4.0.526） |
 | 17. imagine 集成（generate / text + 文字卡 + dry-run 预检 + healthcheckExpect） | 高 | ✅ stub 全链路（validate 用 --dry-run 零消耗、run 出图、build 合成）；文字卡：透明 PNG → 卡片场景合成到 `output.background`（像素断言）与叠加轨窗口；真实 `imagine text`（resvg 构建）端到端 | ✅ 未声明参数 / 缺凭据（tool-failure，无产物残留）/ 工具 usage error（invalid-input）/ 无就绪模型 / healthcheck 非 JSON / 无 resvg 的构建（工具自己的建议进 hint） | 不适用 | ✅ run 失败无产物残留、lock 不变 | `tests/imagine.test.ts` 六例；`tests/text-cards.test.ts` 五例；`scripts/e2e-imagine-text.sh --build` |

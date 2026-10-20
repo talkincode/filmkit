@@ -1,8 +1,8 @@
 // `filmkit import script <notes.md>`: one-way conversion of a knowledge-script
 // markdown file into a filmkit Film. Each `##` section becomes a scene whose
 // narration is the section's text and whose picture is the section's first
-// image (or a placeholder the agent fills in). Like `import hyperstory`, the
-// importer never invents tool parameters: durations are documented estimates
+// image (or a placeholder the agent fills in). The importer never invents tool
+// parameters: durations are documented estimates
 // (durationPolicy: min lets the real TTS decide the floor), missing pictures
 // show up in `plan` as work, and the result must pass `plan` immediately.
 //
@@ -113,7 +113,7 @@ ${bodies.join("\n")}
   // Prove the result is a legal film (schema + structure) before reporting success.
   const loaded = loadFilm(outPath);
   // Pictures the markdown names that are not on disk yet are the agent's first
-  // work items (unlike hyperstory's asset uris, produces are checked for real).
+  // work items (produces are checked for real).
   const filmDir = dirname(resolve(outPath));
   for (const s of loaded.film.scenes) {
     const image = s.produces.image;
