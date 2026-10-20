@@ -148,6 +148,7 @@ timeline:
 24. **烧录字幕（`mode: burn`）** — 合并后的 sidecar SRT 经 `subtitles` 滤镜（libass）烧进画面，同时写出 sidecar 供校对；缺 libass 时 `doctor` 报告、`build` 以 `missing-dependency` 在执行前失败。
 25. **`filmkit import script`** — 口播稿 markdown（`#` 标题 + `##` 小节 + 首图）单向转换为 filmkit.yaml：小节成场景、字符数估时长（`durationPolicy: min`）、缺图占位进 `missingFiles`。
 26. **colab-comfy 集成** — 随仓库分发的 `profiles/colab-comfy.yaml` + `tools/colab-comfy/`：在 Google Colab GPU（默认 L4）上运行固定 ComfyUI API 工作流（首个模板 MiniMax H3 Ref2VA，可选 VSA 稀疏门）。filmkit 核心不变（`src/` 无改动，仍是「`run` 一次一个节点」）：批量/会话/成本全在辅助工具里。`colab-comfy batch`（估算 + 预算闸门 + `--yes`、单会话、渐进下载、无条件 stop + `sessions` 核验、账本）→ `filmkit run <id>` 经 `colab-comfy materialize` 从缓存零成本落位（缓存未命中拒绝，退出 5 → `invalid-input`；`COLAB_COMFY_YES=1` 才单节点花钱）。`candidates`/`pick` 出多候选、由人或 Agent 选定；`doctor`（`healthcheckExpect: {path: ready, equals: true}`）、`cache ls|prune`、`reap`。模板/manifest 全量 pin（commit、HF revision、sha256）。协议 `colab-comfy/v1`（`jobs.schema.json`、`status.schema.json`、`run-record.schema.json`）。
+27. **内置凭据保险库（`filmkit vault`）** — 用户级加密存储（`~/.filmkit/vault.enc`，AES-256-GCM），为依赖 API 密钥的工具（Seedance、Gemini Omni、Colab-Comfy 等）提供安全注入机制。`vault set <NAME>`（仅支持 stdin 或隐藏终端输入，严禁作为 argv 传入以防 ps 泄漏）、`vault import <file>`（从 .env 文件导入）、`vault list`（仅输出键名与更新时间，绝不暴露明文）、`vault delete <NAME>`。运行时注入到 `run`（HTTP 与 CLI）与 `doctor` 子进程环境（`process.env` 优先级高于保险库）。主密钥存储于系统 Keychain，无图形界面或测试环境下自动回退为 `0600` keyfile。写入采用 `.tmp` + 原子替换，损坏保险库显式拒绝绝不静默覆盖。
 
 跨功能约定（适用于全部命令）：`--json` 输出机器可读错误，含 `field` 路径与行号；退出码 `0` ok、`1` io、`2` invalid input、`3` missing dependency、`4` external tool failure。
 
@@ -158,7 +159,7 @@ timeline:
 - **不做 Agent runtime。** filmkit 不调用 skill、MCP 或 LLM，不生成 prompt，不做任何创意决策；`runtime.type` 为 `skill` / `mcp` 的节点由 Agent 执行。filmkit 是编译器与账本，不是调度器。
 - **`runtime.type: http` 必须是声明式、无厂商语义的。** filmkit 可以按 Profile 声明的 create/poll/output 调用生成 API（Seedance、Gemini Omni 等），但核心代码 MUST NOT 出现厂商字段或厂商分支，MUST NOT 自动重试，密钥只声明环境变量名、值只在子进程内读取。任何"为某家 API 写一个客户端类"的改动都违反此条。
 - **无 GUI、无时间线编辑器、无预览服务器、无常驻进程。** 预览与评审一律用**产出的文件**替代：成片预览用 `build --draft`，分镜评审用 `storyboard` 生成的静态 HTML/JSON。`storyboard` 产物必须是可 `file://` 打开、无 JS、无网络、无服务端的单文件——它是文档不是应用；任何走向可编辑、需起服务、带交互状态的“预览”都违规。
-- **不持有、不存储、不打印凭据。** Profile 只声明所需环境变量的名字；`doctor` 只报告存在与否。
+- **不把凭据暴露给项目与外部。** Profile 只声明所需环境变量的名字；凭据可保存在用户级加密保险库（`~/.filmkit/vault.enc`，AES-256-GCM），仅在子进程启动时注入内存，绝不写进项目编排文件、lock 账本、argv 或日志，绝不提供明文导出命令，`doctor` 与 `vault list` 仅报告存在性与来源。
 - **意图与结果分离，永不写回。** filmkit 不修改 `filmkit.yaml`（`import`、`init` 生成新文件除外）；结果只进 lock 文件。
 - **不引入模板表达式语言。** 只有 `${vars.x}` 静态替换；不支持表达式、条件、循环、路径索引。派生值（如已解析时长）只出现在 `plan` 输出里。
 - **不做版本控制、资产库、素材市场或远程 registry。** 编排文件由 git 管理；Profile 由本地目录管理，`ref` 预留 `source` 字段但不实现远程分发。
@@ -226,5 +227,6 @@ timeline:
 | 24. 烧录字幕（mode: burn + libass 预检） | 高 | ✅ dry-run 规划含 subtitles 滤镜 + sidecar 照常写出；有 libass 时真机烧录 | ✅ 无 libass → 退出 3（执行前失败，无成片、lock 不变） | 不适用 | ✅ 预检在执行前：目标与 lock 均不动 | `tests/knowledge.test.ts` "burn" 两例 |
 | 25. import script（markdown → film） | 中 | ✅ 小节→场景→plan 可用（place files）+ 估计时长规则 + 确定性（二次导入逐字相同） | ✅ 文件缺失 / 无小节 / 拒绝覆盖（--force 才覆盖） | 不适用 | ✅ 目标已存在时拒绝写入且不修改原文件 | `tests/knowledge.test.ts` "import script" 三例 |
 | 26. colab-comfy 集成（profile + 批量辅助工具：估算/闸门/单会话/无条件 stop/缓存/运行记录） | 高 | ✅ filmkit 级 stub 全链路（validate→plan→批量→run 落位→status→build --draft）；伪 colab + 真实 VM 脚本 + mock ComfyUI 的会话生命周期；真实 Colab L4 端到端（`scripts/e2e-colab-comfy.sh`，需 `--yes`）：2026-10-18 M8 实跑通过（3/3 片段，0.51 CU，stop 已核验，见 `tools/colab-comfy/README.md` §Real run） | ✅ 缓存未命中经 `filmkit run` 被拒（退出 5→2）/ 超预算 `--yes` 也拒 / 前置外来会话（退出 3，不碰）/ 作业失败 / 缺参考图（missingFiles）/ needs-pick / SIGINT·SIGTERM·SIGKILL / 截止期限（`--max-wall`） / VM 自释放 / SESSION_LEAK / 缺 colab（doctor 退出 3）/ 鉴权失败 | 不适用 | ✅ 失败无产物残留、lock 逐字不变（沿用 run 的恢复路径）；每个会话无论成败都 stop 并核验（`sessions` 为空）；下载 `.part` + rename；`prune` 拒绝在会话可能存活时执行 | `tests/colab-comfy.test.ts` E1–E9（12 例）；`tools/colab-comfy/test/*.test.ts`（job/workflow/cachekey/estimate/gate/immutability/validate-cli/runner/bundle/colab-driver/lifecycle L1–L15/materialize/schema/doctor-cache）；`scripts/e2e-colab-comfy.sh` |
+| 27. 内置凭据保险库（filmkit vault） | 高 | ✅ set（stdin/TTY）、import（.env）、list（仅键名与时间戳）、delete、子进程自动注入（HTTP + CLI）、process.env 优先覆盖 | ✅ argv 传 secret 拒绝（退出 2，防 ps 泄漏）/ 损坏 vault 拒绝解密（退出 1 绝不静默覆盖）/ 非法键名（退出 2）/ 删除不存在键（退出 2）/ 缺失 stdin（退出 2） | 不适用 | ✅ 原子写入（.tmp + rename）；写入失败原有 vault 完好；损坏 vault 报错不覆盖 | `tests/vault.test.ts` 全部 |
 
-本矩阵当前没有 `❌ 缺口`：26 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。
+本矩阵当前没有 `❌ 缺口`：27 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。

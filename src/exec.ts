@@ -7,6 +7,7 @@ import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { FilmkitError, missingDependency, toolFailure, type ErrorDetail } from "./errors.ts";
 import type { ExitClass } from "./types.ts";
+import { effectiveEnv } from "./vault.ts";
 
 export interface ExecResult {
   argv: string[];
@@ -29,7 +30,7 @@ export function exec(argv: string[], opts: ExecOptions): ExecResult {
   if (!cmd) throw new FilmkitError(toolFailure("empty argv"));
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd,
-    env: { ...process.env, ...(opts.env ?? {}) },
+    env: effectiveEnv(opts.env),
     input: opts.input,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,

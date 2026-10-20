@@ -12,6 +12,7 @@ import { taskCommand } from "./template.ts";
 import { httpTable, type HttpJob } from "./http.ts";
 import { emptyLock, writeLock } from "./lock.ts";
 import type { ProduceType } from "./types.ts";
+import { effectiveEnv } from "./vault.ts";
 
 export interface RunResult {
   id: string;
@@ -73,7 +74,8 @@ export function runNode(a: Analysis, id: string, opts: RunOptions = {}): RunResu
       input: JSON.stringify(job),
       // Explicit: Bun's spawnSync does not pick up process.env mutations made
       // after startup, so a key exported by a caller would otherwise be invisible.
-      env: { ...process.env },
+      // effectiveEnv merges process.env with secrets stored in filmkit vault.
+      env: effectiveEnv(),
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,
     });

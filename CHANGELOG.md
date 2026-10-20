@@ -4,8 +4,37 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
-## Unreleased
+## 0.5.0 — Built-in Credential Vault (`filmkit vault`), Interactive Script Development & Environment Onboarding
 
+- **Built-in Credential Vault (`filmkit vault`).**
+  Adds a secure, user-level encrypted storage (`~/.filmkit/vault.enc`, AES-256-GCM, mode 0600)
+  for API keys and secrets used by external tools and HTTP runtimes (`seedance`, `gemini-omni`,
+  `colab-comfy`, `imagine`). Secrets are strictly isolated from projects, git repositories, and
+  lock files. Master key is derived and stored in macOS Keychain (`security`, service `filmkit-vault`,
+  account `master-key`) with seamless fallback to `~/.filmkit/vault.key` (mode 0600) on Linux,
+  headless environments, or when `FILMKIT_HOME` is set.
+  Write-only, leak-proof CLI:
+  `filmkit vault set <NAME>` reads secrets strictly from stdin or interactive hidden prompt
+  (refuses secrets passed as CLI arguments to prevent shell history and `ps` leakage);
+  `filmkit vault import <file>` imports from `.env` files; `filmkit vault list` prints stored names
+  and timestamps only (never values); `filmkit vault delete <NAME>` removes keys; no plaintext `get`
+  command exists. Injected directly into child processes at runtime (`filmkit run` and `filmkit doctor`)
+  with `process.env` taking precedence over vaulted keys. Atomic writes (`.tmp` + `rename`) and
+  tampered/corrupted vault protections ensure zero data loss or accidental overwrites.
+- **Interactive script development & environment onboarding in the filmkit skill
+  (`skills/filmkit/references/script-development.md`, `skills/filmkit/references/environment-onboarding.md`).**
+  Adds (1) a proactive resource & environment onboarding guide for users who just installed
+  filmkit and do not yet know what local models, CLI tools, or cloud APIs exist — automatic
+  read-only hardware/binary/env probe, Starter Kit recommendations (Tier 0 builtin-only, Tier A
+  100% free local on Apple Silicon, Tier B local + AI images, Tier C AI video via Colab/Gemini/Seedance),
+  and step-by-step setup & verification recipes using `filmkit vault set`; and (2) a 10-stage interview
+  workflow for turning a raw topic/idea into a producible script and `filmkit.yaml` while staying
+  inside the toolbox's actual limits (intake & `filmkit doctor` palette scan, topic research & 3
+  directions, beat sheet & emotional hooks, reusable visual style block, character/prop sheets &
+  per-route reference-image rules, spoken copywriting & shot list, compose vs in-clip transition
+  strategies, free local voice audition, BGM ducking & subtitle/text safe zones, publishing cover,
+  AI-content labelling & asset `license` provenance ledger, and `script/bible.md` state
+  persistence). `scripts/check-skill-cli.ts` now also guards `skills/filmkit/references/*.md`.
 - **Deprecate and remove `filmkit import hyperstory`.** The legacy Hyperstory Video Composition
   Schema importer has been removed in favour of `filmkit import script` and standard filmkit
   orchestration. Invoking `filmkit import hyperstory` now fails with exit code 2 (`invalid-input`)
