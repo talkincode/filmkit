@@ -210,19 +210,6 @@ Rules that matter most:
   argv template resolves them at `run` time. No expressions, ever.
 - **`intent` is for you, not for filmkit.** It never affects the build.
 
-## Importing an existing Hyperstory project
-
-```bash
-filmkit import hyperstory ./schema.json --out filmkit.yaml   # never overwrites without --force
-```
-
-The conversion is one-way and intentionally lossy: fields filmkit cannot express
-(style hints, `videoPrompt`, `voiceSpeed`, `videoAudio.volume`, planned
-duration) are kept in `metadata.annotations` and reported as warnings. Scenes
-become `filmkit/static` nodes, so your next steps are the same as any project:
-`filmkit plan`, place or produce the files, then `filmkit build`. Point a scene
-at a video-generation Profile yourself when it needs generated footage.
-
 ## Importing a knowledge script
 
 ```bash
@@ -792,7 +779,6 @@ tasks:
 | `filmkit build [--draft] [--dry-run]` | Normalize, compose, verify; `--dry-run` only writes `build/compose.filtergraph.txt` |
 | `filmkit status` | Observe produces, write lock, report |
 | `filmkit doctor` | Environment + Profile requirements |
-| `filmkit import hyperstory <schema.json> [--out <path>] [--force]` | Convert a Hyperstory schema into a new filmkit.yaml |
 | `filmkit import script <notes.md> [--out <path>] [--force]` | Convert a knowledge-script markdown file into a new filmkit.yaml |
 
 Global options: `--version`, `--film <path>` (default `./filmkit.yaml`), `--json`.

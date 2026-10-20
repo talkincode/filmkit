@@ -6,7 +6,6 @@ import { build } from "./build/index.ts";
 import { doctor, formatDoctor } from "./doctor.ts";
 import { FilmkitError, formatDetail } from "./errors.ts";
 import { loadFilm } from "./film.ts";
-import { importHyperstory } from "./import.ts";
 import { importScript } from "./import-script.ts";
 import { init } from "./init.ts";
 import { formatPlan, makePlan } from "./plan.ts";
@@ -36,8 +35,6 @@ Commands:
                         Normalize every produce, compose along the timeline, verify output
   status                Observe produces, write filmkit.lock.yaml, report readiness
   doctor                Check ffmpeg/ffprobe and every referenced Profile's requirements
-  import hyperstory <schema.json> [--out filmkit.yaml] [--force]
-                        Convert a Hyperstory Video Composition Schema into filmkit.yaml
   import script <notes.md> [--out filmkit.yaml] [--force]
                         Convert a knowledge-script markdown file into filmkit.yaml
   help                  Show this help
@@ -132,12 +129,19 @@ function dispatch(command: Command, rest: string[], v: Values): { json: unknown;
     case "import": {
       const kind = rest[0];
       const source = rest[1];
-      if (!kind || !source) throw new FilmkitError({ code: "invalid-input", message: "usage: filmkit import hyperstory|script <file> [--out filmkit.yaml]" });
-      if (kind !== "hyperstory" && kind !== "script") {
-        throw new FilmkitError({ code: "invalid-input", message: `unknown import kind "${kind}"`, hint: "supported: hyperstory, script" });
+      if (!kind || !source) throw new FilmkitError({ code: "invalid-input", message: "usage: filmkit import script <file> [--out filmkit.yaml]" });
+      if (kind === "hyperstory") {
+        throw new FilmkitError({
+          code: "invalid-input",
+          message: 'import kind "hyperstory" is deprecated and removed',
+          hint: "supported: script",
+        });
+      }
+      if (kind !== "script") {
+        throw new FilmkitError({ code: "invalid-input", message: `unknown import kind "${kind}"`, hint: "supported: script" });
       }
       const out = v.out ?? "./filmkit.yaml";
-      const r = kind === "hyperstory" ? importHyperstory(source, out, { force: v.force }) : importScript(source, out, { force: v.force });
+      const r = importScript(source, out, { force: v.force });
       const lines = [
         `imported ${source} -> ${r.out} (${r.scenes} scenes, ${r.assets} assets)`,
         ...r.warnings.map((w) => `warning: ${w}`),
