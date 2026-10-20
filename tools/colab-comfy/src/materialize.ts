@@ -15,7 +15,7 @@ import { sha256File } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { estimateCU, loadEstimates } from "./estimate.ts";
 import { DEFAULT_GPU, decide } from "./gate.ts";
-import { jobFrames, normalizeJob, resolveRefs, validateJob, variantKey } from "./job.ts";
+import { jobFrames, normalizeJob, resolveInputs, validateJob, variantKey } from "./job.ts";
 import { buildRecord } from "./record.ts";
 import { loadTemplate } from "./workflow.ts";
 
@@ -61,8 +61,8 @@ export async function materialize(o: MaterializeOptions): Promise<{ report: Mate
   const out = resolve(o.cwd, o.out!);
   const recordPath = resolve(o.cwd, o.record!);
 
-  const refs = resolveRefs(job, o.cwd);
-  const infos = Array.from({ length: job.candidates }, (_, index) => ({ index, seed: job.seed + index, ...jobKeyInfo(tpl, job, index, refs) }));
+  const inputs = resolveInputs(job, o.cwd);
+  const infos = Array.from({ length: job.candidates }, (_, index) => ({ index, seed: job.seed + index, ...jobKeyInfo(tpl, job, index, inputs) }));
 
   // Step 2: several candidates need a human/agent decision; list where to look.
   if (job.candidates > 1 && job.pick === undefined) {

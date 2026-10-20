@@ -9,7 +9,7 @@
 import { relative } from "node:path";
 import { cachePaths, jobKeyInfo, readMeta, type CacheMeta } from "./cache.ts";
 import { canonicalJsonPretty } from "./canonical.ts";
-import { jobFrames, resolveRefs, type Job } from "./job.ts";
+import { jobFrames, resolveInputs, type Job } from "./job.ts";
 import type { Template } from "./workflow.ts";
 
 export const RECORD_SCHEMA = "colab-comfy/run-record@1";
@@ -38,9 +38,9 @@ export interface RecordInput {
 
 /** Cache state of every candidate index of a job: key + workflow hash, and the meta when it is cached. */
 export function candidateStates(baseDir: string, job: Job, tpl: Template): { index: number; key: string; workflowSha256: string; meta: CacheMeta | null }[] {
-  const refs = resolveRefs(job, baseDir);
+  const inputs = resolveInputs(job, baseDir);
   return Array.from({ length: job.candidates }, (_, index) => {
-    const { key, workflowSha256 } = jobKeyInfo(tpl, job, index, refs);
+    const { key, workflowSha256 } = jobKeyInfo(tpl, job, index, inputs);
     let meta: CacheMeta | null = null;
     try {
       meta = readMeta(baseDir, key);
@@ -57,12 +57,12 @@ export function candidateStates(baseDir: string, job: Job, tpl: Template): { ind
  */
 export function buildRecord(input: RecordInput): string {
   const { baseDir, job, tpl, winner } = input;
-  const refs = resolveRefs(job, baseDir);
+  const inputs = resolveInputs(job, baseDir);
   const states = candidateStates(baseDir, job, tpl);
   const win = states[winner];
   if (!win) throw new Error(`winner index ${winner} is outside 0..${job.candidates - 1}`);
   const winMeta = readMeta(baseDir, win.key); // strict: a missing/corrupt winner must fail, not yield a thin record
-  const winInfo = jobKeyInfo(tpl, job, winner, refs);
+  const winInfo = jobKeyInfo(tpl, job, winner, inputs);
 
   const candidates: CandidateEntry[] = [];
   for (const s of states) {
@@ -97,7 +97,8 @@ export function buildRecord(input: RecordInput): string {
       sparsity: job.sparsity,
       candidates: job.candidates,
       pick: job.pick ?? null,
-      refs: refs.map((r) => ({ path: r.path, sha256: r.sha256 })),
+      refs: inputs.refs.map((r) => ({ path: r.path, sha256: r.sha256 })),
+      ...(inputs.audio ? { audio: { path: inputs.audio.path, sha256: inputs.audio.sha256, durationSec: inputs.audio.durationSec } } : {}),
     },
     winner: {
       index: winner,

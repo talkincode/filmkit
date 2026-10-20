@@ -9,10 +9,11 @@ import { collectJobs, type PlanJson } from "../src/batch.ts";
 import { cachePaths, jobCacheKey, jobKeyInfo, writeFileAtomic, type CacheMeta } from "../src/cache.ts";
 import { canonicalJsonPretty, sha256Hex } from "../src/canonical.ts";
 import { main } from "../src/cli.ts";
-import { normalizeJob, resolveRefs, type Job } from "../src/job.ts";
+import { normalizeJob, resolveInputs, type Job } from "../src/job.ts";
 import { buildRecord } from "../src/record.ts";
+import { loadTemplate } from "../src/workflow.ts";
 import { fakeColabEnv, readCalls } from "./fake-colab.ts";
-import { fakePng, makeJob, tmpProject, tpl } from "./support.ts";
+import { fakePng, fakeWav, makeJob, tmpProject, tpl, tpl2 } from "./support.ts";
 
 const REPO = resolve(import.meta.dir, "..", "..", "..");
 const SCHEMA = JSON.parse(readFileSync(join(REPO, "tools/colab-comfy/schema/run-record.schema.json"), "utf8"));
@@ -29,7 +30,7 @@ const CLIP = Buffer.from("not really an mp4, but bytes are bytes");
 
 /** Seed one cache entry the way session.ts + attachCost leave it. Returns the key. */
 function seed(job: Job, index: number, over: Partial<CacheMeta> = {}, clip: Buffer = CLIP): string {
-  const key = jobCacheKey(tpl, job, index, resolveRefs(job, p.dir));
+  const key = jobCacheKey(loadTemplate(job.template), job, index, resolveInputs(job, p.dir));
   const paths = cachePaths(p.dir, key);
   writeFileAtomic(paths.clip, clip);
   const meta: CacheMeta = {
@@ -112,7 +113,7 @@ describe("materialize: cache hit", () => {
     expect(a).toBe(canonicalJsonPretty(JSON.parse(a))); // sorted keys, 2-space indent, trailing newline
     expect(a.endsWith("}\n")).toBe(true);
     // rewriting meta.json with shuffled key order must not change the record
-    const key = jobCacheKey(tpl, job(), 0, resolveRefs(job(), p.dir));
+    const key = jobCacheKey(tpl, job(), 0, resolveInputs(job(), p.dir));
     const meta = JSON.parse(readFileSync(cachePaths(p.dir, key).meta, "utf8"));
     const shuffled = Object.fromEntries(Object.entries(meta).reverse());
     writeFileAtomic(cachePaths(p.dir, key).meta, JSON.stringify(shuffled));
@@ -126,6 +127,18 @@ describe("materialize: cache hit", () => {
     expect(validateRecord(rec), JSON.stringify(validateRecord.errors)).toBe(true);
     expect(rec.cost).toMatchObject({ estimateCU: null, sessionActualCU: null, attributedCU: null });
     expect(rec.stop).toEqual({ stopped: null, sessionsVerifiedEmpty: null });
+  });
+
+  test("an audio-guided job records the audio (path, sha256, duration) and the record stays schema-valid", async () => {
+    p.write("vo/s1a.wav", fakeWav(3.56, "vo"));
+    const guided = job({ template: "h3-ref2va@2", audio: "./vo/s1a.wav" });
+    const key = seed(guided, 0);
+    expect(key).not.toBe(jobCacheKey(tpl2, job({ template: "h3-ref2va@2" }), 0, resolveInputs(job(), p.dir)));
+    expect((await run(argvFor({ template: "h3-ref2va@2", audio: "./vo/s1a.wav" }))).exitCode).toBe(0);
+    const rec = JSON.parse(readFileSync(p.dir + "/build/s1a.colab.json", "utf8"));
+    expect(validateRecord(rec), JSON.stringify(validateRecord.errors)).toBe(true);
+    expect(rec.params.audio).toEqual({ path: "./vo/s1a.wav", sha256: sha256Hex(fakeWav(3.56, "vo")), durationSec: 3.56 });
+    expect(rec.winner.cacheKey).toBe(key);
   });
 
   test("sparsity > 0 records the vsa variant", async () => {
@@ -143,7 +156,7 @@ describe("batch key == materialize key (PLAN §8.1 U*)", () => {
 
     const flags = { node: "s1a", template: "h3-ref2va@1", prompt: params.prompt, ref: "./refs/a.png", seed: "20261017", duration: "4.05", resolution: "704x1280", sparsity: "0.75", candidates: "2", pick: "1" };
     const j = normalizeJob(flags);
-    const matKeys = [0, 1].map((i) => jobKeyInfo(tpl, j, i, resolveRefs(j, p.dir)).key);
+    const matKeys = [0, 1].map((i) => jobKeyInfo(tpl, j, i, resolveInputs(j, p.dir)).key);
     expect(matKeys).toEqual(batchKeys);
 
     // and end to end: a clip stored under the batch's key is found by the CLI
@@ -158,9 +171,9 @@ describe("batch key == materialize key (PLAN §8.1 U*)", () => {
   });
 
   test("pick is not part of the key, the prompt is", () => {
-    const base = jobKeyInfo(tpl, job({ candidates: 2 }), 1, resolveRefs(job(), p.dir)).key;
-    expect(jobKeyInfo(tpl, job({ candidates: 2, pick: 1 }), 1, resolveRefs(job(), p.dir)).key).toBe(base);
-    expect(jobKeyInfo(tpl, job({ candidates: 2, prompt: "other <Picture 1>" }), 1, resolveRefs(job(), p.dir)).key).not.toBe(base);
+    const base = jobKeyInfo(tpl, job({ candidates: 2 }), 1, resolveInputs(job(), p.dir)).key;
+    expect(jobKeyInfo(tpl, job({ candidates: 2, pick: 1 }), 1, resolveInputs(job(), p.dir)).key).toBe(base);
+    expect(jobKeyInfo(tpl, job({ candidates: 2, prompt: "other <Picture 1>" }), 1, resolveInputs(job(), p.dir)).key).not.toBe(base);
   });
 });
 
@@ -168,7 +181,7 @@ describe("materialize: candidates", () => {
   test("candidates > 1 without pick: exit 2, hint lists every candidate's cache path, nothing written", async () => {
     const j = job({ candidates: 2 });
     const k0 = seed(j, 0);
-    const k1 = jobCacheKey(tpl, j, 1, resolveRefs(j, p.dir)); // not generated
+    const k1 = jobCacheKey(tpl, j, 1, resolveInputs(j, p.dir)); // not generated
     const r = await run([...argvFor({ candidates: 2 }), "--json"]);
     expect(r.exitCode).toBe(2);
     const err = JSON.parse(r.stderr).errors[0];

@@ -6,7 +6,7 @@ import { delimiter, join } from "node:path";
 import { accessSync, constants } from "node:fs";
 import { Colab } from "./colab.ts";
 import { OURS_PREFIX } from "./reap.ts";
-import { loadTemplate } from "./workflow.ts";
+import { loadTemplate, TEMPLATE_NAMES } from "./workflow.ts";
 
 export interface Check {
   name: string;
@@ -59,8 +59,8 @@ export async function doctor(env: Record<string, string | undefined>): Promise<D
   }
 
   try {
-    loadTemplate("h3-ref2va@1");
-    checks.push({ name: "templates", ok: true, message: "template h3-ref2va@1 present and consistent" });
+    for (const name of TEMPLATE_NAMES) loadTemplate(name);
+    checks.push({ name: "templates", ok: true, message: `templates ${TEMPLATE_NAMES.join(", ")} present and consistent` });
   } catch (err) {
     checks.push({ name: "templates", ok: false, message: (err as Error).message });
   }

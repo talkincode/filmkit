@@ -31,9 +31,20 @@
 #           duration: 4.05
 #           resolution: 704x1280
 #           sparsity: 0.75              # 0 = dense (default), 0.5 / 0.75 = VSA gate
+#           audio: ./media/vo/h3/s1a.wav  # optional lip-sync guide (WAV, <= clip length; template @2), see below
 #       produces:
 #         video: ./build/h3/s1a.mp4
 #         file: ./build/h3/s1a.colab.json   # run record: seed, hashes, versions, GPU, CU
+#
+# Audio guide (lip sync): needs `template: h3-ref2va@2` (same models and pins as
+# @1, which stays frozen). `params.audio` is a film-relative WAV (the scene's VO
+# segment). It is uploaded with the refs and fed through LoadAudio ->
+# MiniMaxH3AddGuide (frame_idx 0) into the conditioning, so the mouth follows
+# that audio instead of only the image + prompt. Starts at the clip's first
+# frame; must not be longer than the generated clip (frames / 24 s), shorter is
+# fine (the rest is unguided). Its bytes are in the cache key: new audio, new
+# render. Without `audio` the workflow is exactly the template's. It is NOT
+# taken from `produces.audio` automatically: declaring it is the opt-in.
 #
 # Candidates: set `candidates: 3`; batch renders seeds seed..seed+2; review the
 # printed cache paths; set `pick: <index>`; `filmkit run` copies the winner (no CU).
@@ -64,8 +75,8 @@ tasks:
       required: [template, prompt, ref, seed, duration, resolution]
       properties:
         template:
-          enum: [h3-ref2va@1]
-          description: Versioned template + pinned model manifest. Bump to re-render under new pins.
+          enum: [h3-ref2va@1, h3-ref2va@2]
+          description: Versioned template + pinned model manifest. Bump to re-render under new pins. @2 = @1 plus the audio guide (params.audio); @1 is frozen and refuses audio.
         prompt:
           type: string
           minLength: 1
@@ -85,6 +96,10 @@ tasks:
         resolution:
           enum: ["1344x768", "768x1344", "1280x704", "704x1280", "1024x768", "768x1024"]
           description: WIDTHxHEIGHT; 16:9 / 9:16 (1344x768, 768x1344, 1280x704, 704x1280) or 4:3 / 3:4 (1024x768, 768x1024).
+        audio:
+          type: string
+          pattern: "^\\.\\.?/"
+          description: Optional lip-sync guide, film-relative RIFF/WAVE file starting at frame 0 (e.g. the scene's VO segment); fed to MiniMaxH3AddGuide. Must not be longer than the generated clip.
         sparsity:
           enum: [0, 0.5, 0.75]
           description: 0 = dense template; 0.5 / 0.75 = VSA gate template with that sparsity. Default 0.
@@ -113,6 +128,7 @@ tasks:
       - "--sparsity=${params.sparsity?}"
       - "--candidates=${params.candidates?}"
       - "--pick=${params.pick?}"
+      - "--audio=${params.audio?}"
       - "--out=${produces.video}"
       - "--record=${produces.file}"
     invocation:
@@ -130,5 +146,6 @@ tasks:
       - "--sparsity=${params.sparsity?}"
       - "--candidates=${params.candidates?}"
       - "--pick=${params.pick?}"
+      - "--audio=${params.audio?}"
       - "--out=${produces.video}"
       - "--record=${produces.file}"

@@ -3,7 +3,10 @@
 // A template is an unmodified ComfyUI API JSON (two variants: dense and VSA)
 // plus bindings.json naming the exact node inputs we may patch. bindWorkflow()
 // deep-copies the variant and writes only those fields; the only structural
-// edits are the variant choice and the extra LoadImage nodes for ref2/ref3.
+// edits are the variant choice, the extra LoadImage nodes for ref2/ref3 and,
+// when a job has an audio guide, the LoadAudio + MiniMaxH3AddGuide pair
+// declared in bindings.audioGuide (spliced between the conditioning node and
+// the guider, the wiring 李律 EP01 used with fl2va).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,6 +14,12 @@ import { canonicalJson, sha256Hex } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid } from "./errors.ts";
 
 export const TEMPLATES_ROOT = join(import.meta.dir, "..", "templates");
+
+/**
+ * Released templates; each `@N` is frozen (test/immutability.test.ts). Must equal the Profile's `template` enum.
+ * @2 = @1 (same models, workflows and pins) + the `audioGuide` binding (MiniMaxH3AddGuide lip sync).
+ */
+export const TEMPLATE_NAMES = ["h3-ref2va@1", "h3-ref2va@2"] as const;
 
 export type WorkflowJson = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 export type Variant = "dense" | "vsa";
@@ -32,6 +41,22 @@ export interface Bindings {
   variants: Record<Variant, string>;
   bind: Record<"prompt" | "width" | "height" | "frames" | "seed" | "sparsity" | "outputPrefix", [string, string]>;
   refs: { loadNode: string; target: string; inputPattern: string; indexBase: number; max: number };
+  /**
+   * Optional lip-sync guide: `loadNode` (LoadAudio) feeds `guideNode` (MiniMaxH3AddGuide), which takes the
+   * conditioning `positive` and the AV `latent`, encodes the audio with `audioVae` and anchors it at `frameIdx`;
+   * its output replaces `consumer` (the guider's conditioning input). Nodes are added only for jobs with audio,
+   * so a job without audio binds to exactly the template workflow. Absent in h3-ref2va@1 (frozen); added in @2.
+   */
+  audioGuide?: {
+    loadNode: string;
+    guideNode: string;
+    positive: [string, number];
+    latent: [string, number];
+    audioVae: [string, number];
+    consumer: [string, string];
+    frameIdx: number;
+    requiredClasses: string[];
+  };
   requiredClasses: string[];
 }
 
@@ -63,6 +88,21 @@ export interface ResolvedRef {
   path: string;
   sha256: string;
   ext: "png" | "jpg" | "webp";
+}
+
+export interface ResolvedAudio {
+  /** The path as written in the film (film-relative). */
+  path: string;
+  sha256: string;
+  ext: "wav";
+  /** Duration from the WAV header (data bytes / byte rate). */
+  durationSec: number;
+}
+
+/** Every input file of a job, content-hashed: what binding, cache keys, bundles and records all use. */
+export interface ResolvedInputs {
+  refs: ResolvedRef[];
+  audio?: ResolvedAudio;
 }
 
 const TEMPLATE_NAME = /^[a-z0-9][a-z0-9-]*@[0-9]+$/;
@@ -119,6 +159,14 @@ function checkBindingsResolve(tpl: Template): void {
     const { loadNode, target } = tpl.bindings.refs;
     if (tpl.variants[v].workflow[loadNode]?.class_type !== "LoadImage") problems.push(`${v}: node ${loadNode} is not a LoadImage`);
     if (!tpl.variants[v].workflow[target]) problems.push(`${v}: ref target node ${target} missing`);
+    const g = tpl.bindings.audioGuide;
+    if (!g) continue;
+    const wf = tpl.variants[v].workflow;
+    for (const id of [g.loadNode, g.guideNode]) if (wf[id]) problems.push(`${v}: audioGuide node id ${id} is already used`);
+    for (const [name, [node]] of [["positive", g.positive], ["latent", g.latent], ["audioVae", g.audioVae]] as const) {
+      if (!wf[node]) problems.push(`${v}: audioGuide ${name} source node ${node} missing`);
+    }
+    if (!(g.consumer[1] in (wf[g.consumer[0]]?.inputs ?? {}))) problems.push(`${v}: audioGuide consumer ${g.consumer.join(".")} does not exist`);
   }
   if (problems.length) {
     throw new ColabComfyError(EXIT.io, [{ code: "io", message: `template ${tpl.name} is inconsistent: ${problems.join("; ")}` }]);
@@ -148,7 +196,8 @@ export interface Bound {
 /** Output prefix used while computing keys; the VM runner replaces it with fk/<cacheKey>. */
 export const KEY_OUTPUT_PREFIX = "fk/out";
 
-export function bindWorkflow(tpl: Template, input: BindInput, candidate: number, refs: ResolvedRef[]): Bound {
+export function bindWorkflow(tpl: Template, input: BindInput, candidate: number, inputs: ResolvedInputs): Bound {
+  const { refs, audio } = inputs;
   if (refs.length < 1 || refs.length > tpl.bindings.refs.max) {
     throw new Error(`bindWorkflow: need 1..${tpl.bindings.refs.max} refs, got ${refs.length}`);
   }
@@ -178,6 +227,18 @@ export function bindWorkflow(tpl: Template, input: BindInput, candidate: number,
       wf[target]!.inputs[inputPattern.replace("{i}", String(indexBase + i))] = [id, 0];
     }
   });
+
+  if (audio) {
+    // The content-hashed filename puts the audio bytes into the workflow, hence into the cache key.
+    const g = tpl.bindings.audioGuide;
+    if (!g) throw new Error(`bindWorkflow: template ${tpl.name} has no audioGuide binding`);
+    wf[g.loadNode] = { class_type: "LoadAudio", inputs: { audio: `${audio.sha256}.${audio.ext}` } };
+    wf[g.guideNode] = {
+      class_type: "MiniMaxH3AddGuide",
+      inputs: { positive: [...g.positive], latent: [...g.latent], frame_idx: g.frameIdx, audio_vae: [...g.audioVae], audio: [g.loadNode, 0] },
+    };
+    wf[g.consumer[0]]!.inputs[g.consumer[1]] = [g.guideNode, 0];
+  }
   return { variant, templateFileSha256: src.fileSha256, workflow: wf };
 }
 

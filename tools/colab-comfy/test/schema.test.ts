@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { collectJobs, type PlanJson } from "../src/batch.ts";
 import { buildJobsDoc, VM_DIR, writeBundle } from "../src/bundle.ts";
 import { makeSampleMp4, startMockComfy, type MockComfy } from "./mock-comfy.ts";
-import { BASE_JOB, fakePng, tmpProject } from "./support.ts";
+import { BASE_JOB, fakePng, fakeWav, tmpProject } from "./support.ts";
 
 const SCHEMA_DIR = join(import.meta.dir, "..", "schema");
 const load = (f: string) => JSON.parse(readFileSync(join(SCHEMA_DIR, f), "utf8"));
@@ -32,6 +32,20 @@ const plan: PlanJson = {
 };
 
 describe("jobs.schema.json (real buildJobsDoc output)", () => {
+  test("a job with an audio guide (wav input + LoadAudio/MiniMaxH3AddGuide nodes) validates", () => {
+    const proj = tmpProject();
+    try {
+      proj.write("refs/a.png", fakePng("a"));
+      proj.write("vo/s0.wav", fakeWav(2, "vo"));
+      const guided: PlanJson = { film: "f", nodes: [{ ...plan.nodes[0]!, params: { ...P, template: "h3-ref2va@2", audio: "./vo/s0.wav" } }] };
+      const { doc } = buildJobsDoc({ session: "fk-schema", nodes: collectJobs(guided, proj.dir).selected, baseDir: proj.dir, limits: { hardDeadlineEpoch: 1792345678 } });
+      expect(doc.jobs[0]!.inputs).toHaveLength(2);
+      expect(validateJobs(doc), errors(validateJobs)).toBe(true);
+    } finally {
+      proj.cleanup();
+    }
+  });
+
   test("a dense + a VSA job validate; unknown fields, bad keys and a missing workflow are rejected", () => {
     const proj = tmpProject();
     try {

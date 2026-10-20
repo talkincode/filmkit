@@ -1,0 +1,76 @@
+{
+  "schema": "colab-comfy/manifest@1",
+  "template": "h3-ref2va@2",
+  "comfyui": {
+    "repo": "https://github.com/Comfy-Org/ComfyUI",
+    "commit": "ce1e922d8623bb507180e32a0c01a7d0e29edef7"
+  },
+  "customNodes": [
+    {
+      "repo": "https://github.com/Kablex/ComfyUI-Ref2VA-VSA",
+      "commit": "323a0a5f7c636cc70f95464145732f81f04a72e9"
+    }
+  ],
+  "weights": [
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "file": "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "subdir": "diffusion_models",
+      "bytes": 20970379616,
+      "sha256": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
+    },
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "file": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "subdir": "text_encoders",
+      "bytes": 15687142551,
+      "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6"
+    },
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "file": "vae/minimax_h3_video_vae_fp16.safetensors",
+      "subdir": "vae",
+      "bytes": 5207808496,
+      "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522"
+    },
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "file": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "subdir": "vae",
+      "bytes": 605254808,
+      "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+    },
+    {
+      "repo": "barelymining/ComfyUI-MiniMax-H3-FastVideo",
+      "revision": "aa554050fe27ec3c62e20e57519beb46741c9000",
+      "file": "fasth3_vsa_gate.safetensors",
+      "subdir": "loras",
+      "bytes": 3853522616,
+      "sha256": "bf95408e335c4b0d6a1a44946a428a3e12849e6eab2de9566ecedae4a0043420"
+    },
+    {
+      "repo": "lightx2v/Minimax-h3-Turbo",
+      "revision": "a29e57d195f80ead07c89f89e55ecf2911e893c5",
+      "file": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "subdir": "loras",
+      "bytes": 1956193000,
+      "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c"
+    }
+  ],
+  "launch": [
+    "--listen",
+    "127.0.0.1",
+    "--port",
+    "8188",
+    "--disable-auto-launch",
+    "--preview-method",
+    "none",
+    "--disable-pinned-memory"
+  ],
+  "diskFreeGB": 60,
+  "verifySha256": false
+}
