@@ -4,6 +4,12 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## 0.7.3 — explicit seek verification status
+
+- `package-motion` now also requires `verification.seek.status: verified`, alongside identical pixels and
+  non-empty samples. A skipped/missing status cannot be disguised by contradictory flags. Regressions,
+  both real-engine cross-project runs and the full blockout E2E script passed.
+
 ## 0.7.2 — complete blockout binding handoff
 
 - `package-motion` requires a complete rendered handoff and maps composition/shot, explicit scene pin,
