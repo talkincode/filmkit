@@ -1,0 +1,104 @@
+# Ready-to-use Profile for the L0 white-model reference tool `blockout` (tools/blockout/),
+# Blender engine. A blockout is a MOTION / BLOCKING reference — where people and the camera go,
+# what hides what, who holds what — NOT an identity reference and NOT a first frame.
+#
+# Install the tool and reference this Profile from your film:
+#   ln -sf "$PWD/tools/blockout/bin/blockout.ts" ~/.local/bin/blockout
+#   blockout doctor --engine blender          # Blender 5.x + ffmpeg ready?
+#   cp profiles/blender.yaml <project>/profiles/
+#
+#   profiles:
+#     - ref: filmkit/static
+#     - ref: ./profiles/blender.yaml
+#   assets:
+#     s3-ref:
+#       kind: video
+#       impl:
+#         profile: blender
+#         task: render
+#         params:
+#           scene: ./blockout/s3-handoff.json     # the declaration (see tools/blockout/README.md); you write it
+#       produces:
+#         video: ./build/blockout/s3/reference.mp4
+#         file:  ./build/blockout/s3/manifest.json
+#   scenes:
+#     - id: s3
+#       duration: 3
+#       intent: { references: [s3-ref] }
+#       impl: { profile: filmkit/static, task: clip }
+#       produces: { video: ./assets/final-s3.mp4 }
+#
+# A reference belongs in assets, not the final-film sequence. A separate, deliberately
+# authored white-model animatic Film can of course use these clips as its scenes.
+#
+# What the node leaves behind, all beside produces.video (the bundle directory):
+#   reference.mp4        H.264 reference video, exactly durationFrames frames at the declared fps
+#   overview.png         layout still with subject/camera paths
+#   keyframes/kf-<frame>.png   lossless stills
+#   source.tar.gz        source project archive (declaration + Blender project)
+#   manifest.json        produces.file: pins, binding (composition@revision, shot and/or scene@revision,
+#                        environment, subjects, props), sha256/size/mime of every artifact, analysis,
+#                        verification (seek.status "verified" | "skipped"), handoff completeness
+#
+# What this Profile assumes, and what it does not do:
+#   * filmkit never reads the declaration or the .blend. `filmkit validate` delegates to
+#     `blockout validate --engine blender --native`: the declaration is checked, then Blender itself
+#     opens the project generated from it. Native Python runs inside Blender only; the host tool is Bun.
+#   * Output is staged and moved into place only when everything verified, never overwriting: a bundle
+#     that already exists is refused (io). Re-running a stale node needs `flags: [--force]`, which
+#     replaces the whole bundle transactionally.
+#   * The Three.js engine needs no Profile of its own: `blockout project --engine three --out ./video`
+#     writes an ordinary HyperFrames project (pinned, vendored three.js, no network at render time) that
+#     the existing profiles/hyperframes.yaml `render` task renders.
+#   * No model, credential or LLM is involved anywhere.
+apiVersion: filmkit/v1alpha1
+kind: Profile
+metadata:
+  name: blender
+  version: ">=5.0"
+  description: Render a small explicit blockout scene (capsule/primitive white models, keyframed camera) to a motion/blocking reference bundle with Blender.
+runtime:
+  type: cli
+  binary: blockout
+  healthcheck: ["blockout", "doctor", "--engine", "blender", "--json"]
+  healthcheckExpect: { path: ready, equals: true }
+  exitCodes: { "0": ok, "1": io, "2": invalid-input, "3": missing-dependency, "4": tool-failure }
+capabilities:
+  produces: [video, file]
+tasks:
+  render:
+    description: blockout render --engine blender — scene declaration to reference.mp4 + overview + keyframes + source archive + manifest.
+    paramsSchema:
+      type: object
+      additionalProperties: false
+      required: [scene]
+      properties:
+        scene:
+          type: string
+          description: 'Blockout scene declaration (a ./ path, e.g. ./blockout/s3.json). Checked, content-hashed for staleness and passed as written.'
+        seekSamples:
+          type: integer
+          minimum: 0
+          maximum: 64
+          description: 'Frames rendered out of order and compared with the sequential render (default 3). 0 skips the check and the manifest says so (verification.seek.status "skipped", identical null); --handoff refuses 0.'
+        crf:
+          type: integer
+          minimum: 0
+          maximum: 51
+          description: Video quality for the reference.mp4 encode (default 18).
+        flags:
+          type: array
+          description: 'Valueless CLI flags, named verbatim. --force replaces an existing bundle in the same directory (all-or-nothing). --handoff requires the complete upstream binding (composition, shot AND scene, environment variant, a variant on every subject and prop) in the declaration.'
+          items: { enum: [--force, --handoff] }
+    produces: [video, file]
+    validate: ["blockout", "validate", "${params.scene}", "--engine=blender", "--native", "${params.flags?}"]
+    invocation:
+      - blockout
+      - render
+      - "${params.scene}"
+      - "--engine=blender"
+      - "--video=${produces.video}"
+      - "--manifest=${produces.file}"
+      - "--seek-samples=${params.seekSamples?}"
+      - "--crf=${params.crf?}"
+      - "${params.flags?}"

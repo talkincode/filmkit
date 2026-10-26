@@ -98,6 +98,12 @@ const report = (c: Conversion, extra: Partial<Report>, dir: string): Report => (
 
 const counts = (r: FetchResult): Pick<Report, "downloaded" | "present"> => ({ downloaded: r.downloaded.length, present: r.present.length });
 
+export function writeNewFile(path: string, text: string, force = false): void {
+  const out = resolve(path);
+  refuseOverwrite(out, force);
+  writeAtomic(out, text);
+}
+
 export function convertFile(opts: { bundlePath: string; out: string; force: boolean }): Report {
   const out = resolve(opts.out);
   refuseOverwrite(out, opts.force);
@@ -127,11 +133,14 @@ export async function pull(opts: { client: Client; project: string; composition:
   const conversion = convertBundle(bundle, `${bundle.composition.project}/${bundle.composition.id}@${rev}`);
   assertLegalFilm(conversion.yaml); // still nothing on disk
 
-  const result = await fetchFiles({ client: opts.client, project: bundle.composition.project, items: conversion.fetch, dir, force: opts.force });
-
   const bundlePath = join(dir, "vflow", `${bundle.composition.id.replace(/[^A-Za-z0-9._-]+/g, "_")}@${rev}.bundle.json`);
-  writeAtomic(bundlePath, `${JSON.stringify(sortKeys(bundleForRecord(exported)), null, 2)}\n`);
-  writeAtomic(out, conversion.yaml);
+  const result = await fetchFiles({
+    client: opts.client, project: bundle.composition.project, items: conversion.fetch, dir, force: opts.force,
+    writes: [
+      { target: bundlePath, text: `${JSON.stringify(sortKeys(bundleForRecord(exported)), null, 2)}\n` },
+      { target: out, text: conversion.yaml },
+    ],
+  });
   return report(conversion, { out: opts.out, bundle: bundlePath, ...counts(result) }, dir);
 }
 

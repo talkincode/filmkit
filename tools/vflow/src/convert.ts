@@ -47,6 +47,11 @@ const EXT: Record<string, string> = {
   "video/webm": "webm",
   "video/quicktime": "mov",
   "video/ogg": "ogv",
+  "application/zip": "zip",
+  "application/x-tar": "tar",
+  "application/gzip": "gz",
+  "application/x-blender": "blend",
+  "application/json": "json",
 };
 const extOf = (mime: string): string => EXT[mime.toLowerCase()] ?? "bin";
 const kindOf = (mime: string): "image" | "video" | "audio" | "file" => {
@@ -77,7 +82,7 @@ const round6 = (n: number): number => Math.round(n * 1e6) / 1e6;
 
 export function convertBundle(bundle: Bundle, source: string): Conversion {
   const { composition: comp } = bundle;
-  const warnings: string[] = [];
+  const warnings: string[] = [...bundle.motionWarnings];
   const used = new Set<string>(); // scene ids and asset names share one namespace in filmkit
   const assetNames = new Map<string, string>(); // vflow asset id -> film asset name
   const filmAssets: Record<string, { uri: string; kind: string }> = {};
@@ -117,7 +122,7 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
   const scenes: unknown[] = [];
   const estimated: string[] = [];
   const skippedPack = new Set<string>();
-  const skipped = { dependsOn: 0, candidateVideos: 0, candidateAudios: 0, referenceVideos: 0, selectedAudio: 0 };
+  const skipped = { dependsOn: 0, candidateVideos: 0, candidateAudios: 0, selectedAudio: 0 };
 
   comp.sequence.forEach((shotId, i) => {
     const sceneId = sceneIds[i]!;
@@ -139,6 +144,13 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
     };
     addMaterial(shot.references, "references", "references.images");
     addMaterial(shot.candidateImages, "candidates", "candidates.images");
+    const referenceVideos = shot.referenceVideos.map((m, j) => {
+      const field = `${at}.references.videos[${j}].asset`;
+      if (kindOf(manifestEntry(m.asset, field).mimeType) !== "video") fail(invalid(`reference ${m.asset} must be a video`, { field }));
+      const name = useAsset(m.asset, field);
+      push(name);
+      return { ref: name, asset: m.asset, ...(m.role ? { role: m.role } : {}), ...(m.notes ? { notes: m.notes } : {}), approval: "unverified" };
+    });
 
     // ---- pinned subjects -> approved reference pack of the resolved variant ----
     const subjectUse: unknown[] = [];
@@ -172,6 +184,27 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
         ...(variantNames.length ? { variants: Object.fromEntries(variantNames.map((n) => [n, subject.variants[n]!.description])) } : {}),
       };
       subjectUse.push({ subject: key, ...(variant ? { variant } : {}), refs: packRefs });
+    });
+
+    // Approved dynamic references are design inputs, not final footage. Keep
+    // source archives available for inspection but never include them as model inputs.
+    const motions = bundle.motions.filter((m) => m.shotId === shotId).map((m) => {
+      if (shot.selectedVideo === m.video) fail(invalid("white-model reference video cannot be selected as final footage", { field: `${at}.selected.video` }));
+      const motionAsset = (asset: string, purpose: string, expected: "video" | "image" | "file") => {
+        const field = `dependencies.materials.${m.id}@${m.revision}.${purpose}`;
+        if (kindOf(manifestEntry(asset, field).mimeType) !== expected) fail(invalid(`motion ${purpose} must be ${expected}`, { field }));
+        const ref = useAsset(asset, field);
+        if (expected === "video" || purpose.startsWith("keyframes.")) push(ref); // overview/source are review/archive only
+        return { ref, asset };
+      };
+      return {
+        material: { id: m.id, revision: m.revision }, approval: "approved", compositionRevision: m.compositionRevision,
+        purpose: m.usage, provenance: m.provenance, fps: m.fps, durationFrames: m.durationFrames,
+        scene: m.scene, environmentVariant: m.environmentVariant, subjects: m.subjects,
+        video: motionAsset(m.video, "video", "video"), overview: motionAsset(m.overview, "overview", "image"),
+        source: motionAsset(m.source, "source", "file"),
+        keyframes: m.keyframes.map((k) => ({ ...motionAsset(k.asset, `keyframes.${k.id}`, "image"), id: k.id, momentFrame: k.momentFrame, purpose: k.purpose, ...(k.note ? { note: k.note } : {}) })),
+      };
     });
 
     // ---- selected video: a ready clip, else a placeholder the agent fills ----
@@ -210,6 +243,8 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
     shotNotes[sceneId] = {
       shot: shotId,
       ...(materials.length ? { materials } : {}),
+      ...(referenceVideos.length ? { referenceVideos } : {}),
+      ...(motions.length ? { motionReferences: motions } : {}),
       ...(subjectUse.length ? { subjects: subjectUse } : {}),
       ...(Object.keys(prompts).length ? { prompts } : {}),
       ...(hasSelected ? { selectedVideo: shot.selectedVideo } : {}),
@@ -218,7 +253,6 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
     skipped.dependsOn += shot.skipped.dependsOn;
     skipped.candidateVideos += shot.skipped.candidateVideos;
     skipped.candidateAudios += shot.skipped.candidateAudios;
-    skipped.referenceVideos += shot.skipped.referenceVideos;
     skipped.selectedAudio += shot.skipped.selectedAudio;
   });
 
@@ -226,8 +260,9 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
     warnings.push(`${estimated.length} shot(s) have no durationFrames and are estimated at ${DEFAULT_SHOT_SECONDS}s (${estimated.join(", ")}); durationPolicy: min lets the produced clip decide`);
   }
   for (const key of [...skippedPack].sort()) warnings.push(`subject ${key}: candidate reference-pack entries were skipped (only approved ones are imported)`);
-  if (bundle.generation === "v2" && comp.materials > 0) {
-    warnings.push(`${comp.materials} pinned authoring material(s) are not imported (only subject reference packs are read)`);
+  const otherMaterials = comp.materials - bundle.motions.length;
+  if (bundle.generation === "v2" && otherMaterials > 0) {
+    warnings.push(`${otherMaterials} pinned authoring material(s) are not imported (only subject reference packs and approved motion references are read)`);
   }
 
   const ignored: string[] = [];
@@ -237,7 +272,6 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
   note(comp.audioTracks, "audioTracks");
   note(skipped.candidateVideos, "candidates.videos");
   note(skipped.candidateAudios, "candidates.audios");
-  note(skipped.referenceVideos, "references.videos");
   note(skipped.selectedAudio, "selected.audio");
   note(skipped.dependsOn, "dependsOn edges");
   note(Object.keys(comp.shots).length - comp.sequence.length, "shots not in sequence");

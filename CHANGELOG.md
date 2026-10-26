@@ -4,6 +4,31 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## 0.7.0 — L0 dynamic white-model references (Three.js / Blender / vflow)
+
+- **External `blockout` tool, no Film Schema or core changes.** Small explicit geometry, jointed proxies,
+  prop attachment windows and integer-frame camera/action keyframes. Blender Workbench or vendored
+  Three.js through HyperFrames renders reference.mp4, overview, keyframes and a source archive. The manifest
+  records fixed bindings, engine/dependency versions, hashes and measured media facts. Both real engines
+  were exercised: 640×360, 24 fps, 96 decoded frames, shuffled seek pixels equal to the sequential render.
+  `profiles/blender.yaml` delegates validation/rendering; Three.js source projects use the existing HyperFrames
+  Profile. Missing optional engines are reported, never required by unrelated films.
+- **L0 vflow consumption.** Read exactly pinned, approved `motion_reference` materials, including their
+  composition baselines and scene/subject versions. Keep motion video/keyframes as inputs and overview/source
+  as review/archive assets, never automatically as final footage or identity/first-frame inputs. Changed shot
+  design, timing or scene/subject binding is refused; candidate/selected results alone are not design changes.
+- **Offline `vflow-pull package-motion`.** Verify real decoded video, artifact hashes and explicit upstream
+  bindings, then emit an unreviewed document and upload manifest for vflow's existing APIs. Distinct roles and
+  frame moments retain distinct asset IDs even if bytes coincide. Multiple usages require explicit keyframe
+  purposes. No network write, approval, provider selection or model call is made.
+- **Failure integrity.** Pull now installs artifacts and documents as one rollback-capable batch, restoring old
+  files on late filesystem failure. Blockout rendering stages the entire bundle, and a skipped seek check is
+  explicitly unverified rather than a vacuous success.
+- **Verification and workflow.** `tests/blockout.test.ts`, `tools/blockout/test/`, motion consumer/package tests,
+  and `scripts/e2e-blockout-vflow.sh` (both real engines → local vflow MCP/REST lifecycle → filmkit consumption).
+  The vflow fixture approval is test-only, not a production creative review. Updated roadmap/matrix, skill and
+  `docs/blockout.md`; complete playback and visual semantics remain human review points.
+
 ## 0.6.1 — `vflow-pull`: sign in with your own Cloudflare Access login
 
 - **`vflow-pull` can use the signed-in person's Access login.** With no service token set, it asks

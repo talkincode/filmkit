@@ -6,11 +6,12 @@
 // (that is what makes a re-run cheap).
 
 import { createHash } from "node:crypto";
-import { copyFileSync, createReadStream, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { copyFileSync, createReadStream, existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import type { Client } from "./client.ts";
 import { type FetchItem } from "./convert.ts";
-import { fail, io } from "./errors.ts";
+import { fail, io, PullError } from "./errors.ts";
+import { commitFiles, RecoveryError } from "./transaction.ts";
 
 export async function sha256File(path: string): Promise<string> {
   const hash = createHash("sha256");
@@ -47,7 +48,7 @@ function groupByContent(items: FetchItem[]): Group[] {
   return [...groups.values()];
 }
 
-export async function fetchFiles(opts: { client: Client; project: string; items: FetchItem[]; dir: string; force: boolean }): Promise<FetchResult> {
+export async function fetchFiles(opts: { client: Client; project: string; items: FetchItem[]; dir: string; force: boolean; writes?: { target: string; text: string }[] }): Promise<FetchResult> {
   const { client, project, dir, force } = opts;
   const abs = (target: string) => resolve(dir, target);
   const present: string[] = [];
@@ -61,6 +62,8 @@ export async function fetchFiles(opts: { client: Client; project: string; items:
       const path = abs(target);
       if (!existsSync(path)) {
         missing = true;
+      } else if (!lstatSync(path).isFile()) {
+        fail(io(`target is not a regular file: ${target}`));
       } else if ((await sha256File(path)) === g.sha256) {
         present.push(target);
       } else if (relative(dir, path).split("\\").join("/").startsWith(CACHE_DIR) || force) {
@@ -76,7 +79,7 @@ export async function fetchFiles(opts: { client: Client; project: string; items:
   }
 
   const downloaded: FetchResult["downloaded"] = [];
-  if (todo.length === 0) return { downloaded, present };
+  if (todo.length === 0 && !opts.writes?.length) return { downloaded, present };
 
   const cache = join(dir, "assets", "vflow");
   // mkdir -p reports the topmost directory it had to create: on failure that whole
@@ -84,6 +87,7 @@ export async function fetchFiles(opts: { client: Client; project: string; items:
   const createdRoot = mkdirSync(cache, { recursive: true });
   const staging = mkdtempSync(join(cache, ".pull-"));
   let landed = false;
+  let preserve = false;
   try {
     const staged: { group: Group; file: string }[] = [];
     for (const [i, g] of todo.entries()) {
@@ -91,23 +95,31 @@ export async function fetchFiles(opts: { client: Client; project: string; items:
       await client.download(project, g.assetId, file, { sha256: g.sha256, sizeBytes: g.sizeBytes });
       staged.push({ group: g, file });
     }
-    // Everything verified: move into place.
+    const install: { source: string; target: string }[] = [];
     for (const { group, file } of staged) {
-      const [first, ...rest] = group.targets;
-      for (const target of rest) {
-        const path = abs(target);
-        mkdirSync(dirname(path), { recursive: true });
-        copyFileSync(file, `${path}.tmp-${process.pid}`);
-        renameSync(`${path}.tmp-${process.pid}`, path);
+      for (const [i, target] of group.targets.entries()) {
+        const source = i === 0 ? file : `${file}-copy-${i}`;
+        if (i > 0) copyFileSync(file, source);
+        install.push({ source, target: abs(target) });
       }
-      mkdirSync(dirname(abs(first!)), { recursive: true });
-      renameSync(file, abs(first!));
       downloaded.push({ assetId: group.assetId, bytes: group.sizeBytes, targets: group.targets });
     }
+    for (const [i, write] of (opts.writes ?? []).entries()) {
+      const source = join(staging, `document-${i}`);
+      writeFileSync(source, write.text, "utf8");
+      install.push({ source, target: write.target });
+    }
+    commitFiles(install, staging);
     landed = true;
+  } catch (err) {
+    preserve = err instanceof RecoveryError;
+    if (err instanceof PullError) throw err;
+    fail(io(`cannot stage vflow pull: ${(err as Error).message}`));
   } finally {
-    rmSync(staging, { recursive: true, force: true });
-    if (!landed && createdRoot) rmSync(createdRoot, { recursive: true, force: true });
+    if (!preserve) {
+      rmSync(staging, { recursive: true, force: true });
+      if (!landed && createdRoot) rmSync(createdRoot, { recursive: true, force: true });
+    }
   }
   return { downloaded, present };
 }

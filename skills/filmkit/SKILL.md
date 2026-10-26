@@ -322,6 +322,36 @@ file) and use `vflow-pull convert <bundle>`, then `vflow-pull fetch <bundle>` fo
 cannot carry asset bytes. A pull that fails changes nothing (exit `3` = not logged in / credentials rejected — the error prints the login command, `4` = download or integrity).
 Details: `tools/vflow/README.md`.
 
+## Dynamic white-model references (Three.js / Blender)
+
+Use white-model animation to settle blocking, camera motion, contact/occlusion and action timing before final
+asset generation. Render with external Three.js/HyperFrames or Blender; vflow stores the typed reference,
+fixed scene/subject versions, review and input evidence, never runs the renderer. See `docs/blockout.md` and
+`tools/blockout/README.md` for the production tool and `tools/vflow/README.md` for consumption.
+
+```bash
+blockout render ./blockout/shot.json --engine three --out ./build/reference
+vflow-pull package-motion ./build/reference/manifest.json --binding ./vflow-bindings.json --out ./motion-package.json
+```
+
+The handoff verifies actual decoded media, file hashes and explicit upstream bindings. It only creates a local
+unreviewed document/upload list; use the existing vflow MCP/REST upload and put/review/approve workflow.
+No automatic approval, no guessed subject/variant, and no model call occurs. If several motion usages are
+requested, specify each keyframe's purpose rather than relying on array order.
+
+An approved, exactly pinned vflow `motion_reference` comes in as ordinary video/image/file assets. Read
+`metadata.annotations["vflow.shots"].motionReferences` for its uses and keyframe moments. The source archive is
+for inspection/rebuilding, not for a model input; the overview is for review, not automatically a model input.
+Legacy `references.videos` also arrive, but unreviewed ones are labelled `unverified`, never claimed approved.
+Do not put a white-model video into final `produces`, an identity/wardrobe slot, or a first/last-frame slot.
+
+Verify the target tool's reference-video capabilities explicitly before delivery. If it cannot take a video,
+choose specific keyframes and their motion/layout uses in vflow input preparation; do not quietly drop the
+video, pick random frames or treat the white model as the final look. Record what was actually sent, with
+asset hashes and order. Input evidence matching does not prove the model obeyed the intended motion.
+Changed shot design, subject revision or environment needs a new reference/review; candidate output changes
+alone are not changes to the shot design. Full playback remains a human review point.
+
 ## Music that must hit the picture cuts (`fit: exact`)
 
 ```yaml

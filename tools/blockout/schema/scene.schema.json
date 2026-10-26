@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/talkincode/filmkit/tools/blockout/schema/scene.schema.json",
+  "title": "blockout scene (blockout/v1alpha1)",
+  "description": "A small, explicit L0 blockout: space geometry, capsule/primitive subjects and props with binding ids, integer-frame keyframes, a camera with target and focal length. World is right-handed, Z up, meters; +X right, +Y forward. Rotations are degrees, Euler XYZ (extrinsic). Unknown fields are rejected.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "id", "binding", "timing", "frame", "camera"],
+  "properties": {
+    "apiVersion": { "const": "blockout/v1alpha1" },
+    "kind": { "const": "BlockoutScene" },
+    "id": { "$ref": "#/$defs/identifier" },
+    "binding": {
+      "description": "What this blockout stands in for upstream, pinned by revision. composition is required; at least one of shot | scene (both may be given); environment names the environment definition and/or its variant. A pure-geometry scene may stop at composition + shot; a hand-off to an upstream system needs them all (blockout validate --handoff).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["composition"],
+      "properties": {
+        "composition": { "$ref": "#/$defs/binding" },
+        "shot": { "$ref": "#/$defs/binding" },
+        "scene": { "$ref": "#/$defs/binding" },
+        "environment": { "$ref": "#/$defs/environmentBinding" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fps", "durationFrames"],
+      "properties": {
+        "fps": { "type": "integer", "minimum": 1, "maximum": 120 },
+        "durationFrames": { "type": "integer", "minimum": 1, "maximum": 3600, "description": "Frame i shows absolute time i/fps; the video has exactly this many frames." }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 64, "maximum": 3840, "multipleOf": 2 },
+        "height": { "type": "integer", "minimum": 64, "maximum": 3840, "multipleOf": 2 }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "background": { "$ref": "#/$defs/color" },
+        "floor": {
+          "description": "The z = 0 ground slab. Default: 10 x 10 centered on the origin.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["size"],
+          "properties": {
+            "size": { "$ref": "#/$defs/size2" },
+            "center": { "$ref": "#/$defs/vec2" },
+            "color": { "$ref": "#/$defs/color" }
+          }
+        },
+        "walls": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "from", "to", "height", "thickness"],
+            "properties": {
+              "id": { "$ref": "#/$defs/identifier" },
+              "from": { "$ref": "#/$defs/vec2" },
+              "to": { "$ref": "#/$defs/vec2" },
+              "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+              "thickness": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+              "color": { "$ref": "#/$defs/color" }
+            }
+          }
+        },
+        "blocks": {
+          "description": "Set-dressing primitives (counters, pillars, partitions). pos is the shape's center.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "shape", "pos"],
+            "properties": {
+              "id": { "$ref": "#/$defs/identifier" },
+              "shape": { "$ref": "#/$defs/shape" },
+              "pos": { "$ref": "#/$defs/vec3" },
+              "rotZ": { "type": "number", "description": "Degrees about Z." },
+              "color": { "$ref": "#/$defs/color" }
+            }
+          }
+        }
+      }
+    },
+    "subjects": {
+      "description": "People. humanoid = fixed minimal jointed capsule rig; capsule = one capsule plus a facing marker.",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "binding", "kind", "height", "keyframes"],
+        "properties": {
+          "id": { "$ref": "#/$defs/identifier" },
+          "binding": { "$ref": "#/$defs/entityBinding" },
+          "kind": { "enum": ["humanoid", "capsule"] },
+          "height": { "type": "number", "exclusiveMinimum": 0.3, "maximum": 4 },
+          "radius": { "type": "number", "exclusiveMinimum": 0, "maximum": 2, "description": "capsule kind only; default 0.12 * height." },
+          "color": { "$ref": "#/$defs/color" },
+          "shadow": { "type": "boolean", "description": "A dark disc on the floor under the subject. Default true." },
+          "keyframes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 512,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["frame"],
+              "properties": {
+                "frame": { "$ref": "#/$defs/frame" },
+                "interp": { "$ref": "#/$defs/interp" },
+                "pos": { "$ref": "#/$defs/vec3" },
+                "rot": { "$ref": "#/$defs/vec3" },
+                "joints": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "spine": { "$ref": "#/$defs/vec3" },
+                    "neck": { "$ref": "#/$defs/vec3" },
+                    "shoulderL": { "$ref": "#/$defs/vec3" },
+                    "shoulderR": { "$ref": "#/$defs/vec3" },
+                    "elbowL": { "$ref": "#/$defs/vec3" },
+                    "elbowR": { "$ref": "#/$defs/vec3" },
+                    "hipL": { "$ref": "#/$defs/vec3" },
+                    "hipR": { "$ref": "#/$defs/vec3" },
+                    "kneeL": { "$ref": "#/$defs/vec3" },
+                    "kneeR": { "$ref": "#/$defs/vec3" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "props": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "binding", "shape", "keyframes"],
+        "properties": {
+          "id": { "$ref": "#/$defs/identifier" },
+          "binding": { "$ref": "#/$defs/entityBinding" },
+          "shape": { "$ref": "#/$defs/shape" },
+          "color": { "$ref": "#/$defs/color" },
+          "keyframes": {
+            "description": "The prop's own pose. While an attach window is active the attached pose wins.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 512,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["frame"],
+              "properties": {
+                "frame": { "$ref": "#/$defs/frame" },
+                "interp": { "$ref": "#/$defs/interp" },
+                "pos": { "$ref": "#/$defs/vec3" },
+                "rot": { "$ref": "#/$defs/vec3" }
+              }
+            }
+          },
+          "attach": {
+            "description": "Windows (inclusive frames) in which the prop is held by a humanoid's joint/hand/head. offset and rot are in that frame.",
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["subject", "joint", "from", "to"],
+              "properties": {
+                "subject": { "$ref": "#/$defs/identifier" },
+                "joint": { "enum": ["spine", "neck", "shoulderL", "shoulderR", "elbowL", "elbowR", "hipL", "hipR", "kneeL", "kneeR", "handL", "handR", "head"] },
+                "from": { "$ref": "#/$defs/frame" },
+                "to": { "$ref": "#/$defs/frame" },
+                "offset": { "$ref": "#/$defs/vec3" },
+                "rot": { "$ref": "#/$defs/vec3" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "camera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyframes"],
+      "properties": {
+        "sensorWidth": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "Horizontal sensor width in mm. Default 36." },
+        "keyframes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["frame"],
+            "properties": {
+              "frame": { "$ref": "#/$defs/frame" },
+              "interp": { "$ref": "#/$defs/interp" },
+              "pos": { "$ref": "#/$defs/vec3" },
+              "target": { "$ref": "#/$defs/vec3" },
+              "focalLength": { "type": "number", "exclusiveMinimum": 1, "maximum": 1000, "description": "mm, interpolated linearly." },
+              "roll": { "type": "number", "description": "Degrees about the view axis; default 0." }
+            }
+          }
+        }
+      }
+    },
+    "overview": {
+      "description": "The layout still. Default: an auto-framed 3/4 view of the whole scene at frame 0.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frame": { "$ref": "#/$defs/frame" },
+        "pos": { "$ref": "#/$defs/vec3" },
+        "target": { "$ref": "#/$defs/vec3" },
+        "focalLength": { "type": "number", "exclusiveMinimum": 1, "maximum": 1000 }
+      }
+    },
+    "stills": {
+      "description": "Frames exported as keyframes/kf-<frame>.png. Default: every frame that carries a declared keyframe (at most 32).",
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/frame" }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
+    "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "frame": { "type": "integer", "minimum": 0, "maximum": 3599 },
+    "interp": { "enum": ["linear", "hold", "smooth"], "description": "How the segment that STARTS at this keyframe is traversed." },
+    "vec2": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } },
+    "vec3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "size2": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 } },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S+$" },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^\\S+$" }
+      }
+    },
+    "entityBinding": {
+      "description": "A subject or prop's upstream identity: id + revision, and optionally the variant (costume, state, ...) the blockout stands in for.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S+$" },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^\\S+$" },
+        "variant": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S+$" }
+      }
+    },
+    "environmentBinding": {
+      "description": "The environment definition (id + revision, given together) and/or the named variant of it that is shown. At least one of them.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S+$" },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^\\S+$" },
+        "variant": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S+$" }
+      }
+    },
+    "shape": {
+      "type": "object",
+      "discriminator": { "propertyName": "type" },
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "size"], "properties": { "type": { "const": "box" }, "size": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 } } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "radius", "height"], "properties": { "type": { "const": "cylinder" }, "radius": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 }, "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "radius"], "properties": { "type": { "const": "sphere" }, "radius": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "radius", "height"], "properties": { "type": { "const": "capsule" }, "radius": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 }, "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000, "description": "Total height including both caps." } } }
+      ]
+    }
+  }
+}

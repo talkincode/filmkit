@@ -1,0 +1,41 @@
+{
+  "apiVersion": "blockout/v1alpha1",
+  "kind": "BlockoutScene",
+  "id": "spell-motion-e2e",
+  "binding": {
+    "composition": { "id": "main", "revision": "1" },
+    "shot": { "id": "spell", "revision": "1" },
+    "environment": { "id": "bridge", "revision": "3" }
+  },
+  "timing": { "fps": 24, "durationFrames": 96 },
+  "frame": { "width": 640, "height": 360 },
+  "environment": {
+    "background": "#282828",
+    "floor": { "size": [8, 8] },
+    "blocks": [
+      { "id": "partition", "shape": { "type": "box", "size": [1, 0.2, 2] }, "pos": [0, -0.7, 1], "color": "#999999" },
+      { "id": "counter", "shape": { "type": "box", "size": [0.6, 0.4, 1.065136906532638] }, "pos": [0.06606715915966303, 0.5362988410921657, 0.532568453266319], "color": "#888888" }
+    ]
+  },
+  "subjects": [{
+    "id": "suwei-proxy", "binding": { "id": "suwei", "revision": "1" },
+    "kind": "humanoid", "height": 1.7, "color": "#eeeeee",
+    "keyframes": [
+      { "frame": 0, "pos": [-1.5, 0, 0], "rot": [0, 0, 0] },
+      { "frame": 32, "pos": [-0.5, 0, 0], "joints": { "shoulderR": [35, 0, 0], "elbowR": [50, 0, 0] } },
+      { "frame": 64, "pos": [0.5, 0, 0], "joints": { "shoulderR": [50, 0, 0], "elbowR": [70, 0, 0] } },
+      { "frame": 95, "pos": [1.5, 0, 0], "rot": [0, 0, 30] }
+    ]
+  }],
+  "props": [{
+    "id": "boat-proxy", "binding": { "id": "boat", "revision": "1" },
+    "shape": { "type": "box", "size": [0.4, 0.2, 0.2] }, "color": "#bbbbbb",
+    "keyframes": [{ "frame": 0, "pos": [0.06606715915966303, 0.5362988410921657, 1.1844104686384416], "rot": [102.5, 0, 15.157894736842113] }],
+    "attach": [{ "subject": "suwei-proxy", "joint": "handR", "from": 48, "to": 95, "offset": [0, 0, 0] }]
+  }],
+  "camera": { "keyframes": [
+    { "frame": 0, "pos": [3, -5, 3], "target": [0, 0, 0.9], "focalLength": 35 },
+    { "frame": 95, "pos": [5, -2, 2.5], "target": [0.5, 0, 0.9], "focalLength": 40 }
+  ] },
+  "stills": [0, 48, 95]
+}
