@@ -17,8 +17,10 @@ every generated film is legal) — and changes neither.
 | --- | --- |
 | shot `description`, `prompts.video` | `scenes[].intent.description` / `intent.action` (in `sequence` order) |
 | shot material images (`references.images`, `candidates.images`) | `assets` (kind from MIME) + `intent.references`, files under `assets/vflow/<sha256>.<ext>` |
+| shot reference videos (`references.videos`) | `kind: video` input assets + `intent.references`; role/notes stay in `vflow.shots.referenceVideos`. Legacy unreviewed references are labelled `approval: unverified`, not claimed approved or promoted to final clips. |
 | pinned subjects (characters, props): the **approved** reference pack of the resolved variant (`variant`, else `defaultVariant`) | the same `assets` + `intent.references`; the subject's name, description and invariants go to `metadata.annotations` |
 | `selected.video`, if the designers already picked one | the scene's `produces.video` (a ready clip), else a placeholder `./assets/<scene>.mp4` that `plan` lists as "place files" |
+| v2 `motion_reference` materials, pinned by exact id/revision and approved | motion video, overview, keyframes and source archive as ordinary assets; `vflow.shots.motionReferences` retains scene/subject versions, motion-only purpose and source provenance. Archive is not a model input, no white-model asset becomes final footage. |
 | `durationFrames` / `format.fps` | `scenes[].duration` in seconds, `durationPolicy: min`; no `durationFrames` → 3 s, estimated and flagged |
 | `format` | `output.video` (container h264/aac/48 kHz stereo are defaults — edit freely) |
 
@@ -27,13 +29,19 @@ every generated film is legal) — and changes neither.
 the original shot id, `prompts.image`/`prompts.audio`). For example `colab-comfy`'s `h3-ref2va` takes at most three
 reference images, while a shot can carry more — which three is a creative decision this tool does not make.
 
-Listed as **not imported** (never silently dropped): `audioTracks`, video/audio candidates, reference videos,
-`selected.audio`, `dependsOn` edges, shots outside `sequence`, and the v2 reference-authoring materials. filmkit
+Listed as **not imported** (never silently dropped): `audioTracks`, video/audio candidates,
+`selected.audio`, `dependsOn` edges, shots outside `sequence`, and v2 reference-authoring materials other than approved motion references. filmkit
 makes its own music, narration and transitions.
 
 Both vflow protocol generations are read (`vflow/v1`, `vflow/v2`, and the pre-rename `video-compose/*` ids);
 anything else is refused with `field: apiVersion`. Unknown fields are ignored; the fields it does read are checked
 strictly, with paths (`composition.shots.shot-003.subjects[0]`).
+
+For approved dynamic references the bundle must contain the pinned composition baseline. Design changes
+(description, prompts, dependencies, duration, format), subject/variant or scene-version drift are refused;
+candidate/selected output changes alone do not invalidate a design. Reference fps may differ from composition
+fps: durations are compared in seconds. Candidate motion revisions are skipped with a warning, never claimed
+approved. See [L0 dynamic-reference workflow](../../docs/blockout.md).
 
 ## Install
 
@@ -66,6 +74,28 @@ over REST — MCP cannot carry asset bytes, and passing an image through a model
 vflow-pull convert bundle.json --out filmkit.yaml        # offline; lists the files still missing
 vflow-pull fetch bundle.json --dir .                     # bytes only, verified
 ```
+
+## Offline white-model handoff to vflow
+
+After `blockout render`, make a local package for the existing vflow upload and material APIs:
+
+```bash
+vflow-pull package-motion out/manifest.json --binding vflow-bindings.json --out motion-package.json
+```
+
+Bindings must explicitly supply `id`, `title`, `compositionId`, `compositionRevision`, `shotId`,
+`scene: {id,revision}`, `environmentVariant`, `subjects: [{kind,id,revision,variant}]`, `usage` and `provenance`.
+They must match the rendered bundle's composition/shot, scene geometry and subject revision set. The helper
+re-hashes every artifact and uses ffprobe to check the actual decoded video, not just the declared metadata;
+a skipped/empty seek check is not considered verified. If usage has several purposes, also provide
+`keyframeUsages: [{momentFrame,purpose}]`; it will not guess which kind of motion each frame expresses.
+
+The result is `{document, uploads, warning}`: an **unreviewed** `motion_reference` candidate and a list of
+bundle-relative files with stable role/moment/hash-based IDs, MIME, size and SHA-256. Identical bytes in distinct
+roles still have distinct IDs (overview and keyframe are not the same semantic asset). Upload them using
+vflow's existing two-stage upload API, then submit `document` through `authoring_document_put` and deliberately
+review/approve/pin it. This command makes no network write, grants no approval and sends nothing to a model.
+See `docs/blockout.md` and the fixture bindings for a full example.
 
 ## Credentials
 
@@ -111,3 +141,7 @@ VFLOW_DIR=~/github/vflow bash scripts/e2e-vflow.sh
 The script starts vflow's own acceptance server (`scripts/ui-test-server.ts`: real REST routes and domain,
 in-memory, loopback only), pulls a v1 and a v2 project, compares the landed bytes with what vflow serves, builds a
 video, and checks that a failing pull changes nothing. It refuses to run if something already listens on `:4179`.
+
+`VFLOW_DIR=~/github/vflow bun scripts/e2e-motion-reference.ts` exercises the real vflow MCP prepare/evidence
+and REST export/content interfaces, then pulls an approved motion video's keyframes, overview and source into
+filmkit without producing final footage. It uses only local synthetic fixtures, no production data or model calls.

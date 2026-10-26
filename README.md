@@ -6,7 +6,7 @@
 filmkit.yaml ─► validate ─► plan ─► storyboard ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
 ```
 
-> 状态：`0.6.1`（`vflow-pull`：从 vflow 读取分镜设计，可用你自己的 Cloudflare Access 登录；此前 `0.5.0` 凭据保险库、`0.4.0` `colab-comfy`）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
+> 状态：`0.7.0`（L0 动态白模参考：外部 Three.js / Blender 制作、vflow 版本与审阅、filmkit 只读取用；此前 `0.6.1` Access 登录、`0.5.0` 凭据保险库、`0.4.0` `colab-comfy`）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
 bun bin/filmkit.ts --version   # 版本
@@ -48,7 +48,7 @@ bun bin/filmkit.ts plan          # 列出还缺的文件与需要产出的场景
 
 唯一硬性依赖是 `ffmpeg` / `ffprobe`（`filmkit doctor` 会检查）。Agent 使用说明在 [skills/filmkit/SKILL.md](skills/filmkit/SKILL.md)。
 
-随仓库分发的 Profile（都可选，复制进项目后引用）：`profiles/hyperframes.yaml`（HTML composition → 片段，含本地 TTS / 转录 / 抠像）、`profiles/remotion.yaml`（React composition → 片段 / 单帧）、`profiles/imagine.yaml`（图片生成 / 文本图层）、`profiles/scorekit.yaml`（音乐生成）、`profiles/qwentts.yaml`（中文旁白：预置音色 + 情绪控制 / 声音克隆 / 文本建声）、`profiles/seedance.yaml` 与 `profiles/gemini-omni.yaml`（视频生成 API，密钥走环境变量 `ARK_API_KEY` / `GEMINI_API_KEY`，filmkit 从不打印、从不写盘）。`profiles/colab-comfy.yaml`（Google Colab GPU 上的 ComfyUI 工作流，首个模板 MiniMax H3 Ref2VA；批量与成本由 `tools/colab-comfy/` 辅助工具承担：`colab-comfy batch` 一个会话出片、估算 CU、必 stop，`filmkit run` 再零成本落位，见 `tools/colab-comfy/README.md`）。`tools/vflow/`（`vflow-pull`：只读地把 [vflow](https://github.com/talkincode/vflow) 里设计好的分镜描述、分镜素材图、角色道具参考图取进 filmkit 项目，不回写，见 `tools/vflow/README.md`）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。本机 ffmpeg 没有 `drawtext`／libass，文字进画面用 `imagine text` 出透明 PNG（卡片场景或叠加轨），由带 alpha 的画面合成到 `output.background`。
+随仓库分发的 Profile（都可选，复制进项目后引用）：`profiles/hyperframes.yaml`（HTML composition → 片段，含本地 TTS / 转录 / 抠像）、`profiles/remotion.yaml`（React composition → 片段 / 单帧）、`profiles/imagine.yaml`（图片生成 / 文本图层）、`profiles/scorekit.yaml`（音乐生成）、`profiles/qwentts.yaml`（中文旁白：预置音色 + 情绪控制 / 声音克隆 / 文本建声）、`profiles/seedance.yaml` 与 `profiles/gemini-omni.yaml`（视频生成 API，密钥走环境变量 `ARK_API_KEY` / `GEMINI_API_KEY`，filmkit 从不打印、从不写盘）。`profiles/colab-comfy.yaml`（Google Colab GPU 上的 ComfyUI 工作流，首个模板 MiniMax H3 Ref2VA；批量与成本由 `tools/colab-comfy/` 辅助工具承担：`colab-comfy batch` 一个会话出片、估算 CU、必 stop，`filmkit run` 再零成本落位，见 `tools/colab-comfy/README.md`）。`tools/blockout/`（外部 Three.js/HyperFrames 或 Blender 制作白模参考，交付视频、关键帧、布局图、源归档和哈希清单；不是三维编辑器，见 [L0 工作流](docs/blockout.md) 与 `tools/blockout/README.md`）。`tools/vflow/`（`vflow-pull`：只读地把 [vflow](https://github.com/talkincode/vflow) 里设计好的分镜描述、分镜素材图、角色道具参考图取进 filmkit 项目，不回写，见 `tools/vflow/README.md`）。`fit: exact` 可校验音乐段落边界是否对齐画面剪辑点，段落信息由中立的 `filmkit/cues-v1` 文件承载。本机 ffmpeg 没有 `drawtext`／libass，文字进画面用 `imagine text` 出透明 PNG（卡片场景或叠加轨），由带 alpha 的画面合成到 `output.background`。
 
 ## 开发
 

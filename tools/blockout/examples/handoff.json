@@ -1,0 +1,212 @@
+{
+  "apiVersion": "blockout/v1alpha1",
+  "kind": "BlockoutScene",
+  "id": "counter-handoff",
+  "binding": {
+    "composition": { "id": "kitchen-story", "revision": "12" },
+    "shot": { "id": "s3-handoff", "revision": "4" },
+    "scene": { "id": "scene-kitchen", "revision": "6" },
+    "environment": { "id": "kitchen", "revision": "2", "variant": "day" }
+  },
+  "timing": { "fps": 24, "durationFrames": 72 },
+  "frame": { "width": 640, "height": 360 },
+  "environment": {
+    "background": "#202020",
+    "floor": { "size": [10, 8] },
+    "walls": [{ "id": "wall-back", "from": [-5, 4], "to": [5, 4], "height": 2.6, "thickness": 0.15 }],
+    "blocks": [
+      {
+        "id": "counter",
+        "shape": { "type": "box", "size": [1.2, 0.7, 1.1] },
+        "pos": [-3.4, 1, 0.55],
+        "color": "#6e6e6e"
+      },
+      {
+        "id": "partition",
+        "shape": { "type": "box", "size": [1.6, 0.25, 2.2] },
+        "pos": [-0.2, -1.5, 1.1],
+        "color": "#9a9a9a"
+      }
+    ]
+  },
+  "subjects": [
+    {
+      "id": "ann",
+      "binding": { "id": "char-ann", "revision": "7", "variant": "apron" },
+      "kind": "humanoid",
+      "height": 1.7,
+      "color": "#e6e6e6",
+      "keyframes": [
+        {
+          "frame": 0,
+          "pos": [-3.4, 0.3, 0],
+          "rot": [0, 0, 0],
+          "joints": { "shoulderR": [0, 0, 0], "elbowR": [0, 0, 0] }
+        },
+        {
+          "frame": 8,
+          "rot": [0, 0, 0],
+          "joints": { "shoulderR": [35, 0, 0], "elbowR": [50, 0, 0], "spine": [10, 0, 0] }
+        },
+        {
+          "frame": 14,
+          "rot": [0, 0, -90],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "spine": [0, 0, 0],
+            "hipL": [0, 0, 0],
+            "hipR": [0, 0, 0],
+            "kneeL": [0, 0, 0],
+            "kneeR": [0, 0, 0]
+          },
+          "pos": [-3.4, 0.3, 0]
+        },
+        {
+          "frame": 20,
+          "pos": [-2.68, 0.3, 0],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "hipL": [22, 0, 0],
+            "hipR": [-22, 0, 0],
+            "kneeL": [-5, 0, 0],
+            "kneeR": [-38, 0, 0],
+            "shoulderL": [-18, 0, 0]
+          }
+        },
+        {
+          "frame": 26,
+          "pos": [-1.96, 0.3, 0],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "hipL": [-22, 0, 0],
+            "hipR": [22, 0, 0],
+            "kneeL": [-38, 0, 0],
+            "kneeR": [-5, 0, 0],
+            "shoulderL": [18, 0, 0]
+          }
+        },
+        {
+          "frame": 32,
+          "pos": [-1.24, 0.3, 0],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "hipL": [22, 0, 0],
+            "hipR": [-22, 0, 0],
+            "kneeL": [-5, 0, 0],
+            "kneeR": [-38, 0, 0],
+            "shoulderL": [-18, 0, 0]
+          }
+        },
+        {
+          "frame": 38,
+          "pos": [-0.52, 0.3, 0],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "hipL": [-22, 0, 0],
+            "hipR": [22, 0, 0],
+            "kneeL": [-38, 0, 0],
+            "kneeR": [-5, 0, 0],
+            "shoulderL": [18, 0, 0]
+          }
+        },
+        {
+          "frame": 44,
+          "pos": [0.2, 0.3, 0],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "hipL": [22, 0, 0],
+            "hipR": [-22, 0, 0],
+            "kneeL": [-5, 0, 0],
+            "kneeR": [-38, 0, 0],
+            "shoulderL": [-18, 0, 0]
+          }
+        },
+        {
+          "frame": 50,
+          "pos": [0.92, 0.3, 0],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "hipL": [-22, 0, 0],
+            "hipR": [22, 0, 0],
+            "kneeL": [-38, 0, 0],
+            "kneeR": [-5, 0, 0],
+            "shoulderL": [18, 0, 0]
+          }
+        },
+        {
+          "frame": 54,
+          "pos": [1.4, 0.3, 0],
+          "joints": {
+            "shoulderR": [30, 0, 0],
+            "elbowR": [70, 0, 0],
+            "hipL": [22, 0, 0],
+            "hipR": [-22, 0, 0],
+            "kneeL": [-5, 0, 0],
+            "kneeR": [-38, 0, 0],
+            "shoulderL": [-18, 0, 0]
+          }
+        },
+        {
+          "frame": 60,
+          "pos": [1.4, 0.3, 0],
+          "joints": {
+            "shoulderR": [55, 0, 0],
+            "elbowR": [25, 0, 0],
+            "hipL": [0, 0, 0],
+            "hipR": [0, 0, 0],
+            "kneeL": [0, 0, 0],
+            "kneeR": [0, 0, 0],
+            "shoulderL": [0, 0, 0]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ben",
+      "binding": { "id": "char-ben", "revision": "3", "variant": "default" },
+      "kind": "humanoid",
+      "height": 1.8,
+      "color": "#cfd8e6",
+      "keyframes": [
+        {
+          "frame": 0,
+          "pos": [2.45, -0.12, 0],
+          "rot": [0, 0, 90],
+          "joints": { "shoulderR": [0, 0, 0], "elbowR": [0, 0, 0] }
+        },
+        { "frame": 36, "joints": { "shoulderR": [0, 0, 0], "elbowR": [0, 0, 0] } },
+        { "frame": 56, "joints": { "shoulderR": [55, 0, 0], "elbowR": [25, 0, 0] } }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "mug",
+      "binding": { "id": "prop-mug", "revision": "1", "variant": "default" },
+      "shape": { "type": "cylinder", "radius": 0.04, "height": 0.1 },
+      "color": "#e0a040",
+      "keyframes": [{ "frame": 0, "pos": [-3.196, 0.737, 1.15] }],
+      "attach": [
+        { "subject": "ann", "joint": "handR", "from": 8, "to": 55 },
+        { "subject": "ben", "joint": "handR", "from": 56, "to": 71 }
+      ]
+    }
+  ],
+  "camera": {
+    "sensorWidth": 36,
+    "keyframes": [
+      { "frame": 0, "pos": [-1, -6.8, 1.6], "target": [-3, 0.6, 1.1], "focalLength": 40, "interp": "smooth" },
+      { "frame": 24, "pos": [-0.5, -6.6, 1.5], "target": [-1, 0.3, 1.2], "focalLength": 35, "interp": "smooth" },
+      { "frame": 48, "pos": [1.6, -6.4, 1.6], "target": [1.8, 0.3, 1.2], "focalLength": 42 },
+      { "frame": 71, "pos": [2.2, -6.2, 1.7], "target": [2, 0.2, 1.2], "focalLength": 55 }
+    ]
+  },
+  "stills": [0, 8, 26, 55, 71]
+}

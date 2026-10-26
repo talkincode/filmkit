@@ -1,0 +1,15 @@
+{
+  "id": "spell-motion",
+  "title": "Local white-model integration fixture",
+  "compositionId": "main",
+  "compositionRevision": 1,
+  "shotId": "spell",
+  "scene": { "id": "bridge", "revision": 3 },
+  "environmentVariant": "night",
+  "subjects": [
+    { "kind": "character", "id": "suwei", "revision": 1, "variant": "default" },
+    { "kind": "prop", "id": "boat", "revision": 1, "variant": "default" }
+  ],
+  "usage": ["blocking"],
+  "provenance": "Local acceptance fixture rendered by external Three.js or Blender. This is a mechanical integration fixture, not approved production geometry."
+}

@@ -1,0 +1,12 @@
+{
+  "name": "three",
+  "version": "0.181.2",
+  "license": "MIT",
+  "source": "https://registry.npmjs.org/three/-/three-0.181.2.tgz (build/three.module.min.js, build/three.core.min.js, LICENSE)",
+  "why": "The Three.js project ships its own pinned copy, so a render never fetches anything and the same declaration renders against the same library everywhere.",
+  "sha256": {
+    "three.module.min.js": "979c1ae4b0579c9901eacf797602c0b46df129d87102c6443d14be4a1f790b70",
+    "three.core.min.js": "295a28f4a9786dd24a2a357a4ce90921eb041127e53a508335b9a0556c1e0875",
+    "LICENSE": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+  }
+}

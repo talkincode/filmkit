@@ -4,7 +4,8 @@
 import { parseArgs } from "node:util";
 import { type Client, createClient, ENV_CLIENT_ID, ENV_CLIENT_SECRET, normalizeBase, resolveCredentials } from "./client.ts";
 import { type Detail, fail, invalid, PullError } from "./errors.ts";
-import { convertFile, fetchFromFile, pull, type Report } from "./pull.ts";
+import { convertFile, fetchFromFile, pull, writeNewFile, type Report } from "./pull.ts";
+import { packageMotion } from "./motion-package.ts";
 
 export interface CliResult {
   exitCode: number;
@@ -12,7 +13,7 @@ export interface CliResult {
   stderr: string;
 }
 
-export const COMMANDS = ["pull", "convert", "fetch", "help"] as const;
+export const COMMANDS = ["pull", "convert", "fetch", "package-motion", "help"] as const;
 
 export const HELP = `vflow-pull — read a vflow composition into a filmkit project (read-only: nothing is ever written back to vflow)
 
@@ -25,10 +26,14 @@ usage:
         lists the files still missing
   vflow-pull fetch <bundle.json|yaml> [--base URL] [--dir .] [--force] [--json]
         bytes only: download what the bundle's film references into --dir
+  vflow-pull package-motion <manifest.json> --binding <vflow-bindings.json> [--out package.json] [--force] [--json]
+        offline: verify a rendered blockout package and explicit upstream bindings; emit an unreviewed
+        motion_reference candidate plus upload list (no network write, no approval, no guessed bindings)
   vflow-pull help
 
-what is taken: shot description and video prompt, shot material images, pinned character/prop reference images
-(approved entries of the resolved variant), selected.video when present. Everything else is listed as ignored.
+what is taken: shot description and video prompt, shot material images and reference videos,
+pinned character/prop reference images (approved entries of the resolved variant), selected.video when present.
+Reference videos remain input assets, never final clips; legacy references without approval are marked unverified. Everything else is listed as ignored.
 The film is a new file: existing ones are refused unless --force. impl/params are never guessed.
 
 options: --base URL   the vflow origin (or VFLOW_BASE_URL); https only, plain http only for localhost
@@ -42,6 +47,7 @@ credentials (vflow sits behind Cloudflare Access), first that applies:
 exit codes: 0 ok, 1 io, 2 invalid input, 3 missing dependency (credentials), 4 tool failure`;
 
 const OPTIONS = {
+  binding: { type: "string" },
   project: { type: "string" },
   composition: { type: "string" },
   revision: { type: "string" },
@@ -92,6 +98,13 @@ export async function main(argv: string[]): Promise<CliResult> {
 
     let result: Report;
     switch (command) {
+      case "package-motion": {
+        if (!rest[0] || !values.binding) fail(invalid("usage: vflow-pull package-motion <manifest.json> --binding <vflow-bindings.json>"));
+        const packaged = await packageMotion(rest[0], values.binding);
+        const output = `${JSON.stringify(packaged, null, 2)}\n`;
+        if (values.out) writeNewFile(values.out, output, values.force);
+        return { exitCode: 0, stdout: output, stderr: "" };
+      }
       case "convert": {
         if (!rest[0]) fail(invalid("usage: vflow-pull convert <bundle.json|yaml> [--out filmkit.yaml]"));
         result = convertFile({ bundlePath: rest[0], out: values.out ?? "./filmkit.yaml", force: values.force });

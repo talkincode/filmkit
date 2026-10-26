@@ -9,6 +9,7 @@
 
 import YAML from "yaml";
 import { type Detail, fail, invalid } from "./errors.ts";
+import { readMotionReferences, type MotionReference } from "./motion.ts";
 
 /** apiVersions this reader understands. `video-compose/*` is vflow's pre-rename wire id. */
 const API_VERSIONS: Record<string, "v1" | "v2"> = {
@@ -32,10 +33,12 @@ export interface Shot {
   references: AssetRef[];
   /** `candidates.images` — material candidates attached to the shot. */
   candidateImages: AssetRef[];
+  /** Reference videos are inputs only; they are never selected outputs. */
+  referenceVideos: AssetRef[];
   subjects: { subjectId: string; subjectRevision: number; variant?: string }[];
   selectedVideo: string | null;
   /** Counts of things this reader does not import (reported, never silently dropped). */
-  skipped: { dependsOn: number; candidateVideos: number; candidateAudios: number; referenceVideos: number; selectedAudio: number };
+  skipped: { dependsOn: number; candidateVideos: number; candidateAudios: number; selectedAudio: number };
 }
 
 export interface PackEntry {
@@ -83,6 +86,8 @@ export interface Bundle {
   /** Keyed `<id>@<revision>`. */
   subjects: Map<string, Subject>;
   assets: Map<string, AssetEntry>;
+  motions: MotionReference[];
+  motionWarnings: string[];
 }
 
 type Obj = Record<string, unknown>;
@@ -228,13 +233,13 @@ export function parseBundle(input: string | unknown, source = "bundle"): Bundle 
         },
         references: refList(refs.images, `${f}.references.images`),
         candidateImages: refList(cands.images, `${f}.candidates.images`),
+        referenceVideos: refList(refs.videos, `${f}.references.videos`),
         subjects: bindings,
         selectedVideo: isStr(sel.video) ? sel.video : null,
         skipped: {
           dependsOn: count(s.dependsOn),
           candidateVideos: count(cands.videos),
           candidateAudios: count(cands.audios),
-          referenceVideos: count(refs.videos),
           selectedAudio: isStr(sel.audio) ? 1 : 0,
         },
       };
@@ -252,7 +257,10 @@ export function parseBundle(input: string | unknown, source = "bundle"): Bundle 
   const authoring = comp.authoring;
   const materials = isObj(authoring) && Array.isArray(authoring.materials) ? authoring.materials.length : 0;
 
+  const motion = readMotionReferences(deps, comp, raw.revision);
   return {
+    motions: motion.motions,
+    motionWarnings: motion.warnings,
     apiVersion: apiVersion as string,
     generation: generation!,
     ...(isNonNegInt(raw.revision) ? { revision: raw.revision } : {}),
