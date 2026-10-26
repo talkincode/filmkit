@@ -4,11 +4,13 @@
 // exactly as it was (AGENTS.md acceptance rules 2 and 4).
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import YAML from "yaml";
 import { main } from "../src/cli.ts";
+import { accessTokenFromCloudflared, createClient, resolveCredentials } from "../src/client.ts";
+import { PullError } from "../src/errors.ts";
 import { vaultDelete, vaultSet } from "../../../src/vault.ts";
 import { media, project, type Project } from "../../../tests/helpers.ts";
 import { sha256, startStub, type Stub, TOKEN } from "./stub-vflow.ts";
@@ -130,6 +132,7 @@ const noSecrets = (r: { stdout: string; stderr: string }) => {
   for (const text of [r.stdout, r.stderr]) {
     expect(text).not.toContain(TOKEN.secret);
     expect(text).not.toContain(TOKEN.id);
+    expect(text).not.toContain(TOKEN.jwt);
   }
 };
 
@@ -200,6 +203,7 @@ describe("pull: failures leave the project exactly as it was", () => {
     const err = JSON.parse(r.stderr).errors[0];
     expect(err.code).toBe("missing-dependency");
     expect(err.hint).toContain("CF_ACCESS_CLIENT_ID");
+    expect(err.hint).toContain("cloudflared access login");
     expect(tree()).toEqual(before);
     noSecrets(r);
   });
@@ -285,6 +289,82 @@ describe("pull: failures leave the project exactly as it was", () => {
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("https");
     expect(stub.requests).toEqual([]);
+  });
+});
+
+describe("auth: the signed-in person's Access login via cloudflared", () => {
+  /** A directory standing in for PATH with (optionally) a fake `cloudflared`; the real one is never touched. */
+  function fakePath(script?: string): { dir: string; marker: string; restore: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), "fake-cloudflared-"));
+    const marker = join(dir, "was-called");
+    if (script !== undefined) {
+      writeFileSync(join(dir, "cloudflared"), `#!/bin/sh\n: > "${marker}"\n${script}\n`);
+      chmodSync(join(dir, "cloudflared"), 0o755);
+    }
+    const saved = process.env.PATH;
+    process.env.PATH = dir;
+    return { dir, marker, restore: () => void (process.env.PATH = saved) };
+  }
+  const noServiceToken = () => {
+    delete process.env.CF_ACCESS_CLIENT_ID;
+    delete process.env.CF_ACCESS_CLIENT_SECRET;
+  };
+
+  test("cloudflared's token is used (as cf-access-token) when there is no service token", () => {
+    const f = fakePath(`echo "${TOKEN.jwt}"`);
+    noServiceToken();
+    try {
+      expect(accessTokenFromCloudflared("https://vflow.example")).toBe(TOKEN.jwt);
+      expect(resolveCredentials("https://vflow.example")).toEqual({ kind: "access-token", token: TOKEN.jwt });
+    } finally {
+      f.restore();
+    }
+  });
+
+  test("no login yet, or no cloudflared at all, is simply 'no credentials' (the refusal then explains both ways in)", () => {
+    const loggedOut = fakePath("exit 1");
+    try {
+      expect(accessTokenFromCloudflared("https://vflow.example")).toBeUndefined();
+    } finally {
+      loggedOut.restore();
+    }
+    const absent = fakePath(undefined);
+    try {
+      expect(accessTokenFromCloudflared("https://vflow.example")).toBeUndefined();
+    } finally {
+      absent.restore();
+    }
+  });
+
+  test("a service token wins, and a loopback origin never even asks cloudflared", () => {
+    const f = fakePath(`echo "${TOKEN.jwt}"`);
+    try {
+      process.env.CF_ACCESS_CLIENT_ID = TOKEN.id;
+      process.env.CF_ACCESS_CLIENT_SECRET = TOKEN.secret;
+      expect(resolveCredentials("https://vflow.example")).toMatchObject({ kind: "service-token" });
+      expect(existsSync(f.marker)).toBe(false);
+      noServiceToken();
+      expect(resolveCredentials("http://127.0.0.1:4179")).toBeUndefined();
+      expect(existsSync(f.marker)).toBe(false);
+    } finally {
+      f.restore();
+      noServiceToken();
+    }
+  });
+
+  test("the token travels as the cf-access-token header and is accepted; a stale one is refused with the login command", async () => {
+    const good = createClient(stub.url, { kind: "access-token", token: TOKEN.jwt });
+    expect(await good.exportBundle(PROJECT, COMPOSITION)).toBeDefined();
+
+    const stale = createClient(stub.url, { kind: "access-token", token: "expired-STALE-JWT" });
+    const err = await stale.exportBundle(PROJECT, COMPOSITION).then(
+      () => undefined,
+      (e) => e as PullError,
+    );
+    expect(err).toBeInstanceOf(PullError);
+    expect(err!.exitCode).toBe(3);
+    expect(err!.details[0]!.hint).toContain(`cloudflared access login ${stub.url}`);
+    expect(JSON.stringify(err!.details)).not.toContain("expired-STALE-JWT");
   });
 });
 

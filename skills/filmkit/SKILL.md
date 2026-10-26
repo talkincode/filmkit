@@ -301,7 +301,7 @@ sheets — usually by someone else, over MCP), read it in instead of re-describi
 read-only: nothing is ever written back to vflow.
 
 ```bash
-export VFLOW_BASE_URL=https://vflow.talkincode.net        # CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET in the env or the vault
+export VFLOW_BASE_URL=https://vflow.talkincode.net        # auth: a one-time cloudflared access login <url>, or a service token in the env / the vault
 vflow-pull pull --project <project> --composition <composition> [--revision N]   # writes ./filmkit.yaml
 ```
 
@@ -319,7 +319,7 @@ reference images: pick, and say which you picked). Cost discipline below still a
 
 If the agent already has the vflow MCP tools, take the structure from `composition_export` (save the result as a
 file) and use `vflow-pull convert <bundle>`, then `vflow-pull fetch <bundle>` for the bytes: MCP
-cannot carry asset bytes. A pull that fails changes nothing (exit `3` = credentials, `4` = download or integrity).
+cannot carry asset bytes. A pull that fails changes nothing (exit `3` = not logged in / credentials rejected — the error prints the login command, `4` = download or integrity).
 Details: `tools/vflow/README.md`.
 
 ## Music that must hit the picture cuts (`fit: exact`)

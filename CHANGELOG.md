@@ -4,6 +4,20 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## 0.6.1 — `vflow-pull`: sign in with your own Cloudflare Access login
+
+- **`vflow-pull` can use the signed-in person's Access login.** With no service token set, it asks
+  `cloudflared access token` (after a one-time `cloudflared access login <vflow url>`) and sends the token as
+  `cf-access-token`. This is the natural path for a designer reading their own private projects — nothing to
+  configure on the vflow side. A service token (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`, environment or
+  vault) still takes precedence for headless agents. An expired or rejected login exits `3` and prints the login
+  command; no token value is ever printed or stored, and loopback origins never consult cloudflared.
+- **Verified against production, read-only.** Pulled the live `old-bridge-main-177s` composition (31 shots, 7
+  material images, still on the `video-compose/v1` wire id): 7 downloads sha256-verified, and `filmkit plan` reports
+  a 177.199 s timeline for the "177.2 s" master.
+- **Bun 1.3.x quirk handled.** `spawnSync` looks `cloudflared` up in the PATH captured at start unless `env` is
+  passed explicitly; the tool passes it.
+
 ## 0.6.0 — `vflow-pull`: read a vflow design into a filmkit project
 
 - **`tools/vflow/` (`vflow-pull`), no change to `src/`.** One-way, read-only bridge from

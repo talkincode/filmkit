@@ -2,7 +2,7 @@
 // main() returns the result instead of exiting so tests can run it in-process.
 
 import { parseArgs } from "node:util";
-import { createClient, ENV_CLIENT_ID, ENV_CLIENT_SECRET, readCredentials } from "./client.ts";
+import { type Client, createClient, ENV_CLIENT_ID, ENV_CLIENT_SECRET, normalizeBase, resolveCredentials } from "./client.ts";
 import { type Detail, fail, invalid, PullError } from "./errors.ts";
 import { convertFile, fetchFromFile, pull, type Report } from "./pull.ts";
 
@@ -34,8 +34,10 @@ The film is a new file: existing ones are refused unless --force. impl/params ar
 options: --base URL   the vflow origin (or VFLOW_BASE_URL); https only, plain http only for localhost
          --json       machine-readable output; errors as {"errors":[{code,message,field?,hint?}]} on stderr
 
-credentials: a Cloudflare Access service token in ${ENV_CLIENT_ID} and ${ENV_CLIENT_SECRET}
-             (environment first, then the filmkit vault). They go in request headers only and are never printed.
+credentials (vflow sits behind Cloudflare Access), first that applies:
+             a service token in ${ENV_CLIENT_ID} and ${ENV_CLIENT_SECRET} (environment, then the filmkit vault), or
+             your own login via cloudflared: run \`cloudflared access login <vflow url>\` once.
+             They go in request headers only and are never printed or stored.
 
 exit codes: 0 ok, 1 io, 2 invalid input, 3 missing dependency (credentials), 4 tool failure`;
 
@@ -73,10 +75,11 @@ function formatErrors(details: Detail[]): string {
     .join("\n");
 }
 
-function baseOf(values: { base?: string }): string {
+function clientFor(values: { base?: string }): Client {
   const base = values.base ?? process.env.VFLOW_BASE_URL;
   if (!base) fail(invalid("no vflow origin: pass --base URL or set VFLOW_BASE_URL"));
-  return base;
+  const origin = normalizeBase(base); // refuses cleartext before any credential is looked up
+  return createClient(origin, resolveCredentials(origin));
 }
 
 export async function main(argv: string[]): Promise<CliResult> {
@@ -96,14 +99,14 @@ export async function main(argv: string[]): Promise<CliResult> {
       }
       case "fetch": {
         if (!rest[0]) fail(invalid("usage: vflow-pull fetch <bundle.json|yaml> [--base URL] [--dir .]"));
-        result = await fetchFromFile({ bundlePath: rest[0], client: createClient(baseOf(values), readCredentials()), dir: values.dir ?? ".", force: values.force });
+        result = await fetchFromFile({ bundlePath: rest[0], client: clientFor(values), dir: values.dir ?? ".", force: values.force });
         break;
       }
       case "pull": {
         if (!values.project || !values.composition) fail(invalid("usage: vflow-pull pull --project P --composition C [--revision N] [--base URL]"));
         const revision = values.revision === undefined ? undefined : Number(values.revision);
         if (revision !== undefined && (!Number.isInteger(revision) || revision < 1)) fail(invalid("--revision must be a positive integer", { field: "--revision" }));
-        result = await pull({ client: createClient(baseOf(values), readCredentials()), project: values.project, composition: values.composition, revision, out: values.out ?? "./filmkit.yaml", force: values.force });
+        result = await pull({ client: clientFor(values), project: values.project, composition: values.composition, revision, out: values.out ?? "./filmkit.yaml", force: values.force });
         break;
       }
       default:

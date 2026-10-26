@@ -4,10 +4,17 @@
 // (MCP is deliberately not used here: it cannot carry asset bytes, and pushing a
 // base64 image through an agent's context is not a transport.)
 //
-// Credentials are a Cloudflare Access service token, read from the environment
-// or the filmkit vault (same precedence as `filmkit run`). Values only ever
-// travel in request headers; no message, hint or log line contains them.
+// Two ways through Cloudflare Access, tried in this order:
+//   1. a service token (CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET), read from
+//      the environment or the filmkit vault (same precedence as `filmkit run`) —
+//      for headless agents; the project's owner must have added it as a member;
+//   2. the signed-in person's Access login, fetched with `cloudflared access token`
+//      after a one-time `cloudflared access login <url>` — for designers reading
+//      their own (private) projects; nothing to configure on the vflow side.
+// Values only ever travel in request headers; no message, hint or log line
+// contains them, and nothing is stored by this tool.
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { type FileHandle, open, rm } from "node:fs/promises";
 import { effectiveEnv } from "../../../src/vault.ts";
@@ -19,13 +26,10 @@ export const ENV_CLIENT_SECRET = "CF_ACCESS_CLIENT_SECRET";
 const JSON_TIMEOUT_MS = 60_000;
 const DOWNLOAD_TIMEOUT_MS = 600_000;
 
-export interface Credentials {
-  id: string;
-  secret: string;
-}
+export type Credentials = { kind: "service-token"; id: string; secret: string } | { kind: "access-token"; token: string };
 
 /** Both names set, or neither. One without the other can never authenticate, so say so. */
-export function readCredentials(): Credentials | undefined {
+export function serviceTokenFromEnv(): Credentials | undefined {
   let env: Record<string, string>;
   try {
     env = effectiveEnv();
@@ -38,7 +42,28 @@ export function readCredentials(): Credentials | undefined {
   if (!id || !secret) {
     return fail(invalid(`${ENV_CLIENT_ID} and ${ENV_CLIENT_SECRET} must be set together`, { hint: `one of them is missing; set both (filmkit vault set ${ENV_CLIENT_ID} / ${ENV_CLIENT_SECRET})` }));
   }
-  return { id, secret };
+  return { kind: "service-token", id, secret };
+}
+
+/**
+ * The signed-in user's Access JWT, from `cloudflared access token`. Undefined when
+ * cloudflared is not installed or nobody has logged in to this origin yet (it then
+ * exits non-zero); never opens a browser, never prints the token.
+ */
+export function accessTokenFromCloudflared(origin: string): string | undefined {
+  const r = spawnSync("cloudflared", ["access", "token", "--app", origin], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20_000, env: process.env });
+  if (r.error || r.status !== 0) return undefined;
+  const token = r.stdout.trim();
+  return token === "" ? undefined : token;
+}
+
+/** Service token first; else the cloudflared login — but only for https origins (a loopback test server has no Access in front of it). */
+export function resolveCredentials(origin: string): Credentials | undefined {
+  const serviceToken = serviceTokenFromEnv();
+  if (serviceToken) return serviceToken;
+  if (!origin.startsWith("https://")) return undefined;
+  const token = accessTokenFromCloudflared(origin);
+  return token ? { kind: "access-token", token } : undefined;
 }
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -65,7 +90,11 @@ export interface Client {
 
 export function createClient(base: string, creds: Credentials | undefined): Client {
   const origin = normalizeBase(base);
-  const headers: Record<string, string> = creds ? { "CF-Access-Client-Id": creds.id, "CF-Access-Client-Secret": creds.secret } : {};
+  const headers: Record<string, string> = !creds
+    ? {}
+    : creds.kind === "service-token"
+      ? { "CF-Access-Client-Id": creds.id, "CF-Access-Client-Secret": creds.secret }
+      : { "cf-access-token": creds.token };
   const enc = encodeURIComponent;
 
   async function get(path: string, accept: string, timeoutMs: number): Promise<Response> {
@@ -80,13 +109,14 @@ export function createClient(base: string, creds: Credentials | undefined): Clie
     await res.body?.cancel();
     // Cloudflare Access answers an unauthenticated API call with a 302 to its login page.
     if ((res.status >= 300 && res.status < 400) || res.status === 401 || res.status === 403) {
-      return fail(
-        missingDependency(`vflow refused the request (HTTP ${res.status}) for ${path}`, {
-          hint: creds
-            ? `the service token was not accepted, or it is not a member of project ${path.split("/")[3]}; ask the project owner to add it`
-            : `set ${ENV_CLIENT_ID} and ${ENV_CLIENT_SECRET} (a Cloudflare Access service token the project owner added as a member); filmkit vault set <NAME> stores them`,
-        }),
-      );
+      const login = `cloudflared access login ${origin}`;
+      const hint =
+        creds?.kind === "service-token"
+          ? `the service token was not accepted, or it is not a member of project ${path.split("/")[3]}; ask the project owner to add it`
+          : creds?.kind === "access-token"
+            ? `your Cloudflare Access login was not accepted or has expired; run: ${login}`
+            : `log in once with \`${login}\` (a designer reading their own projects), or set ${ENV_CLIENT_ID} and ${ENV_CLIENT_SECRET} (a service token the project owner added as a member; filmkit vault set <NAME> stores them)`;
+      return fail(missingDependency(`vflow refused the request (HTTP ${res.status}) for ${path}`, { hint }));
     }
     if (res.status === 404) return fail(invalid(`not found: ${path}`, { hint: "check the project, composition, revision and asset ids; a project you may not read also answers 404" }));
     if (res.status < 500) return fail(invalid(`vflow answered HTTP ${res.status} for ${path}`));

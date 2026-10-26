@@ -5,7 +5,7 @@
 //   GET /v1/projects/:p/compositions/:c/export[?revision=N]  -> { bundle, serialized }
 //   GET /v1/projects/:p/assets/:a/content                    -> bytes, ETag "<sha256>"
 //
-// Without the right service-token headers it answers like Cloudflare Access does:
+// Without a valid service token or Access login (cf-access-token) it answers like Cloudflare Access does:
 // a 302 to a login page. `behavior` lets a test break one thing at a time.
 //
 // node:http rather than Bun.serve on purpose: a dropped connection has to be a real
@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
-export const TOKEN = { id: "svc-test-id", secret: "svc-test-secret-DO-NOT-LEAK" };
+export const TOKEN = { id: "svc-test-id", secret: "svc-test-secret-DO-NOT-LEAK", jwt: "stub-access-jwt-DO-NOT-LEAK" };
 
 export interface Behavior {
   /** Serve other bytes than the manifest promises for this asset id. */
@@ -52,7 +52,8 @@ export async function startStub(opts: { bundle: Record<string, unknown>; assets:
     const url = new URL(req.url ?? "/", "http://stub");
     requests.push(`${req.method} ${url.pathname}${url.search}`);
     if (behavior.status) return json(res, behavior.status, { error: "forced" });
-    const authed = req.headers["cf-access-client-id"] === TOKEN.id && req.headers["cf-access-client-secret"] === TOKEN.secret;
+    const authed =
+      (req.headers["cf-access-client-id"] === TOKEN.id && req.headers["cf-access-client-secret"] === TOKEN.secret) || req.headers["cf-access-token"] === TOKEN.jwt;
     if (!behavior.open && !authed) {
       res.writeHead(302, { location: "https://stub.cloudflareaccess.com/login", connection: "close" });
       return void res.end();
