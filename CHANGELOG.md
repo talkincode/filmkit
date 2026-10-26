@@ -4,6 +4,14 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## 0.7.1 — tighten offline motion-reference consumption
+
+- An approved flag alone no longer substitutes for attributable accepted review and all six passed checks.
+  Offline bundles reject unsupported motion schema versions, duplicate roles/keyframe IDs/moments, and
+  keyframe purposes outside the declared usage.
+- Source artifacts accept arbitrary MIME as vflow specifies, but always remain `kind: file` archive assets,
+  never model inputs. Added regressions and repeated the real vflow-to-consumer integration.
+
 ## 0.7.0 — L0 dynamic white-model references (Three.js / Blender / vflow)
 
 - **External `blockout` tool, no Film Schema or core changes.** Small explicit geometry, jointed proxies,

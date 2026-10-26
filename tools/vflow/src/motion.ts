@@ -52,6 +52,7 @@ export function readMotionReferences(deps: Obj, comp: Obj, bundleRevision: unkno
       continue;
     }
     if (!positive(version.revision) || typeof doc.id !== "string") bad("revision", "motion reference needs a fixed revision and id");
+    if (!["vflow/reference-workflow/v1", "video-compose/reference-workflow/v1"].includes(String(doc.schemaVersion))) bad("schemaVersion", "unsupported motion reference schema version");
     if (version.projectId !== comp.project) bad("projectId", "motion reference belongs to another project");
     if (doc.compositionId !== comp.id || typeof doc.shotId !== "string" || !object(comp.shots) || !object(comp.shots[doc.shotId])) bad("shotId", "motion reference targets another composition or an unknown shot");
     if (!positive(doc.compositionRevision) || !positive(doc.fps) || !positive(doc.durationFrames)) bad("durationFrames", "motion reference needs a fixed composition revision, positive fps and frame count");
@@ -73,6 +74,12 @@ export function readMotionReferences(deps: Obj, comp: Obj, bundleRevision: unkno
     const scenePin = pins.find((p) => p.id === (doc.scene as Obj).id);
     if (scenePin && scenePin.revision !== (doc.scene as Obj).revision) bad("scene", "motion reference scene revision differs from the composition's pinned scene");
     if (!object(doc.review) || doc.review.decision !== "accepted") bad("review", "approved motion reference is missing accepted review evidence");
+    const review = doc.review as Obj;
+    if (!["human", "external"].includes(String(review.method)) || typeof review.evidence !== "string" || !review.evidence.trim() || typeof review.reviewer !== "string" || !review.reviewer.trim()) bad("review", "approved motion reference needs attributable review evidence");
+    const checks = object(review.checks) ? review.checks : {};
+    for (const check of ["whitebox_only", "scene_geometry_match", "subject_blocking_match", "timing_verified", "keyframes_match_video", "text_policy"]) {
+      if (checks[check] !== "pass") bad(`review.checks.${check}`, `approved motion reference is missing a passed ${check} check`);
+    }
     const bindings = list(shot.subjects).filter(object);
     const owners = list(doc.subjects).filter(object);
     const key = (id: unknown, revision: unknown, variant: unknown) => `${String(id)}@${String(revision)}/${String(variant)}`;
@@ -88,13 +95,16 @@ export function readMotionReferences(deps: Obj, comp: Obj, bundleRevision: unkno
     };
     const allowed = ["camera_motion", "blocking", "action_timing", "framing"];
     const usage = list(doc.usage);
-    if (!usage.length || !usage.every((u) => allowed.includes(String(u))) || typeof doc.provenance !== "string" || !doc.provenance.trim()) bad("usage", "motion reference needs explicit motion-only usage and provenance");
+    if (!usage.length || new Set(usage).size !== usage.length || !usage.every((u) => allowed.includes(String(u))) || typeof doc.provenance !== "string" || !doc.provenance.trim()) bad("usage", "motion reference needs explicit motion-only usage and provenance");
     const frames = list(doc.keyframes).map((v, i) => {
       if (!object(v) || typeof v.id !== "string" || typeof v.asset !== "string" || typeof v.momentFrame !== "number" || !Number.isInteger(v.momentFrame) || v.momentFrame < 0 || v.momentFrame >= (doc.durationFrames as number)) bad(`keyframes[${i}]`, "invalid motion keyframe");
       const f = v as Obj;
       if (!allowed.includes(String(f.purpose))) bad(`keyframes[${i}].purpose`, "white-model keyframes cannot be identity, first-frame or last-frame inputs");
+      if (!usage.includes(f.purpose)) bad(`keyframes[${i}].purpose`, "keyframe purpose is not declared in motion usage");
       return { id: f.id as string, asset: f.asset as string, momentFrame: f.momentFrame as number, purpose: f.purpose as string, ...(typeof f.note === "string" ? { note: f.note } : {}) };
     });
+    const roleAssets = [asset(doc.video, "video"), asset(doc.overview, "overview"), asset(doc.source, "source"), ...frames.map((f) => f.asset)];
+    if (!frames.length || new Set(roleAssets).size !== roleAssets.length || new Set(frames.map((f) => f.id)).size !== frames.length || new Set(frames.map((f) => f.momentFrame)).size !== frames.length) bad("keyframes", "motion roles, keyframe ids and moments must be distinct and non-empty");
     motions.push({
       id: doc.id as string, revision: version.revision as number, shotId: doc.shotId as string,
       compositionRevision: doc.compositionRevision as number, fps: doc.fps as number, durationFrames: doc.durationFrames as number,

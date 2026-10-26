@@ -37,7 +37,10 @@ Both vflow protocol generations are read (`vflow/v1`, `vflow/v2`, and the pre-re
 anything else is refused with `field: apiVersion`. Unknown fields are ignored; the fields it does read are checked
 strictly, with paths (`composition.shots.shot-003.subjects[0]`).
 
-For approved dynamic references the bundle must contain the pinned composition baseline. Design changes
+For approved dynamic references the bundle must contain the pinned composition baseline and attributable
+accepted review evidence with all six mandatory checks passed. Duplicate role IDs, keyframe IDs/moments or
+undeclared keyframe usages are rejected. Source MIME is opaque: it is retained as a file archive regardless
+of its reported media type, never as a model input. Design changes
 (description, prompts, dependencies, duration, format), subject/variant or scene-version drift are refused;
 candidate/selected output changes alone do not invalidate a design. Reference fps may differ from composition
 fps: durations are compared in seconds. Candidate motion revisions are skipped with a warning, never claimed

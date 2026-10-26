@@ -192,8 +192,12 @@ export function convertBundle(bundle: Bundle, source: string): Conversion {
       if (shot.selectedVideo === m.video) fail(invalid("white-model reference video cannot be selected as final footage", { field: `${at}.selected.video` }));
       const motionAsset = (asset: string, purpose: string, expected: "video" | "image" | "file") => {
         const field = `dependencies.materials.${m.id}@${m.revision}.${purpose}`;
-        if (kindOf(manifestEntry(asset, field).mimeType) !== expected) fail(invalid(`motion ${purpose} must be ${expected}`, { field }));
+        const entry = manifestEntry(asset, field);
+        if (expected !== "file" && kindOf(entry.mimeType) !== expected) fail(invalid(`motion ${purpose} must be ${expected}`, { field }));
         const ref = useAsset(asset, field);
+        // Source is an opaque archive by purpose, regardless of MIME. Do not
+        // accidentally turn an image/video-typed source into a model input.
+        if (expected === "file") filmAssets[ref]!.kind = "file";
         if (expected === "video" || purpose.startsWith("keyframes.")) push(ref); // overview/source are review/archive only
         return { ref, asset };
       };
