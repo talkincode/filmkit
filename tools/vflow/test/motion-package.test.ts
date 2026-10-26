@@ -19,7 +19,7 @@ function fixture() {
     handoff: { complete: true, missing: [] },
     binding: { composition: { id: "main", revision: "1" }, shot: { id: "spell", revision: "1" }, scene: { id: "bridge", revision: "3" }, environment: { id: "weather-definition", revision: "2", variant: "night" }, subjects: [], props: [] },
     render: { width: 64, height: 36, fps: 24, durationFrames: 12 },
-    verification: { seek: { identical: true, frames: [0] } },
+    verification: { seek: { status: "verified", identical: true, frames: [0] } },
     artifacts: [artifact("reference-video", "reference.mp4", "video/mp4"), artifact("overview", "overview.png", "image/png"), artifact("keyframe", "overview.png", "image/png", { frame: 0 }), artifact("source-archive", "source.gz", "application/gzip")],
   };
   const binding: Record<string, any> = { id: "motion", title: "White-model blocking", compositionId: "main", compositionRevision: 1, shotId: "spell", scene: { id: "bridge", revision: 3 }, environmentVariant: "night", subjects: [], usage: ["blocking"], provenance: "Local acceptance fixture, externally rendered" };
@@ -104,6 +104,18 @@ test("an incomplete or contradictory handoff cannot be repaired by supplying mis
     f.manifest.handoff = { complete: true, missing: [] };
     f.manifest.binding.scene = undefined as never; f.write();
     expect((await main(f.args)).exitCode).toBe(2); // environment.id must not be used as a scene fallback
+  } finally { f.p.cleanup(); }
+});
+
+test("skipped or absent seek status is not accepted even when pixels claim identical and samples are non-empty", async () => {
+  const f = fixture();
+  try {
+    f.manifest.verification.seek.status = "skipped"; f.write();
+    const skipped = await main(f.args);
+    expect(skipped.exitCode).toBe(2);
+    expect(JSON.parse(skipped.stderr).errors[0].field).toBe("manifest.verification.seek.status");
+    f.manifest.verification.seek.status = undefined as never; f.write();
+    expect((await main(f.args)).exitCode).toBe(2);
   } finally { f.p.cleanup(); }
 });
 

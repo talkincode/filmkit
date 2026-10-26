@@ -93,7 +93,7 @@ deterministically into vflow pins. Geometry `kind` is never used as the vflow su
 ID is never used as a scene fallback. Optionally supply explicit `compositionId`, `compositionRevision`,
 `shotId`, `scene`, `environmentVariant` and `subjects` assertions; any mismatch is refused, not silently replaced. The helper
 re-hashes every artifact and uses ffprobe to check the actual decoded video, not just the declared metadata;
-a skipped/empty seek check is not considered verified. If usage has several purposes, also provide
+a skipped/empty seek check is not considered verified: status must be `verified`, identical must be true and samples non-empty. If usage has several purposes, also provide
 `keyframeUsages: [{momentFrame,purpose}]`; it will not guess which kind of motion each frame expresses.
 
 The result is `{document, uploads, warning}`: an **unreviewed** `motion_reference` candidate and a list of

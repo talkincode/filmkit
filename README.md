@@ -6,7 +6,7 @@
 filmkit.yaml ─► validate ─► plan ─► storyboard ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
 ```
 
-> 状态：`0.7.2`（L0 动态白模参考：外部 Three.js / Blender 制作、vflow 版本与审阅、filmkit 只读取用；此前 `0.6.1` Access 登录、`0.5.0` 凭据保险库、`0.4.0` `colab-comfy`）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
+> 状态：`0.7.3`（L0 动态白模参考：外部 Three.js / Blender 制作、vflow 版本与审阅、filmkit 只读取用；此前 `0.6.1` Access 登录、`0.5.0` 凭据保险库、`0.4.0` `colab-comfy`）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
 bun bin/filmkit.ts --version   # 版本

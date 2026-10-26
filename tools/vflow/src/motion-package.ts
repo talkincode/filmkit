@@ -81,6 +81,7 @@ export async function packageMotion(manifestPath: string, bindingPath: string) {
   if (!Array.isArray(b.usage) || !b.usage.length || !b.usage.every((u) => allowedUsage.includes(String(u))) || new Set(b.usage).size !== b.usage.length) bad("binding.usage", "choose unique motion-only usages");
   const timing = obj(m.render) ? m.render : {};
   const verification = obj(m.verification) ? m.verification : {};
+  if (!obj(verification.seek) || verification.seek.status !== "verified") bad("manifest.verification.seek.status", "handoff requires an explicitly verified random-seek check");
   if (!pos(timing.fps) || timing.fps > 240 || !pos(timing.durationFrames) || !obj(verification.seek) || verification.seek.identical !== true || !Array.isArray(verification.seek.frames) || verification.seek.frames.length === 0) bad("manifest.verification", "render must have fixed timing and successful non-empty seek verification");
   if (!Array.isArray(m.artifacts)) bad("manifest.artifacts", "missing artifacts");
   const root = realpathSync(dirname(resolve(manifestPath)));
