@@ -4,6 +4,27 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## 0.6.0 — `vflow-pull`: read a vflow design into a filmkit project
+
+- **`tools/vflow/` (`vflow-pull`), no change to `src/`.** One-way, read-only bridge from
+  [vflow](https://github.com/talkincode/vflow) (the story-design collaboration workspace) to filmkit.
+  `pull` exports a composition over REST, downloads the files it needs (each verified against vflow's own sha256
+  and size) and writes a **new** `filmkit.yaml`; `convert` (offline, from a bundle file) and `fetch` (bytes only)
+  cover the case where the agent obtained the bundle through the vflow MCP. It takes only what filmkit needs:
+  shot descriptions and video prompts (`intent.description` / `intent.action`), shot material images and the
+  approved reference images of every pinned character/prop (`assets` + `intent.references`), the duration
+  (`durationFrames ÷ fps`, `durationPolicy: min`) and, when the designers already chose one, `selected.video`.
+  `impl`/`params` are never guessed; everything not imported (audio tracks, candidate videos, `dependsOn`, v2
+  authoring materials …) is listed. Reads `vflow/v1`, `vflow/v2` and the pre-rename `video-compose/*` ids.
+- **Safe by construction.** Credentials are a Cloudflare Access service token (`CF_ACCESS_CLIENT_ID` /
+  `CF_ACCESS_CLIENT_SECRET`, environment first, then the vault) sent only as headers and never printed; plain
+  `http://` is refused except for localhost. A failed pull leaves the project exactly as it was; an existing film or a
+  clip the user placed is never overwritten without `--force`; the same bundle gives a byte-identical film.
+- **Verification.** `tools/vflow/test/` (converter fixtures are real vflow exports; stub-server end to end including a
+  built video and every failure path) and `scripts/e2e-vflow.sh`, which runs vflow's own acceptance server (real REST
+  routes and domain) and builds a video from the pulled project. vflow itself needed no change: its export bundle
+  already carries everything this reads.
+
 ## 0.5.0 — Built-in Credential Vault (`filmkit vault`), Interactive Script Development & Environment Onboarding
 
 - **Built-in Credential Vault (`filmkit vault`).**

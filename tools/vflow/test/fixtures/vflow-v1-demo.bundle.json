@@ -1,0 +1,170 @@
+{
+  "apiVersion": "vflow/v1",
+  "composition": {
+    "apiVersion": "vflow/v1",
+    "audioTracks": [
+      {
+        "asset": "preview-wav",
+        "durationFrames": 30,
+        "id": "bgm-main",
+        "role": "bgm",
+        "startFrame": 0
+      }
+    ],
+    "format": {
+      "fps": 30,
+      "height": 1080,
+      "width": 1920
+    },
+    "id": "episode-001",
+    "project": "demo",
+    "sequence": [
+      "shot-001",
+      "shot-002",
+      "shot-003"
+    ],
+    "shots": {
+      "shot-001": {
+        "candidates": {
+          "audios": [],
+          "images": [
+            {
+              "asset": "preview-png"
+            }
+          ],
+          "videos": []
+        },
+        "dependsOn": [],
+        "description": "镜头 1 雨巷",
+        "durationFrames": 90,
+        "prompts": {
+          "image": "画面提示词 1",
+          "video": "运镜提示词 1"
+        },
+        "references": {
+          "images": [
+            {
+              "asset": "preview-png"
+            }
+          ],
+          "videos": []
+        },
+        "selected": {
+          "audio": null,
+          "video": null
+        },
+        "subjects": [
+          {
+            "subjectId": "character-main",
+            "subjectRevision": 1
+          }
+        ]
+      },
+      "shot-002": {
+        "candidates": {
+          "audios": [],
+          "images": [],
+          "videos": []
+        },
+        "dependsOn": [],
+        "description": "镜头 2 雨巷",
+        "durationFrames": 90,
+        "prompts": {
+          "image": "画面提示词 2",
+          "video": "运镜提示词 2"
+        },
+        "references": {
+          "images": [],
+          "videos": []
+        },
+        "selected": {
+          "audio": null,
+          "video": null
+        },
+        "subjects": []
+      },
+      "shot-003": {
+        "candidates": {
+          "audios": [],
+          "images": [],
+          "videos": []
+        },
+        "dependsOn": [],
+        "description": "镜头 3 雨巷",
+        "durationFrames": 90,
+        "prompts": {
+          "image": "画面提示词 3",
+          "video": "运镜提示词 3"
+        },
+        "references": {
+          "images": [],
+          "videos": []
+        },
+        "selected": {
+          "audio": null,
+          "video": null
+        },
+        "subjects": []
+      }
+    },
+    "title": "雨巷 · 第一集"
+  },
+  "dependencies": {
+    "assets": [
+      {
+        "height": 180,
+        "id": "preview-png",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "id": "preview-wav",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": false
+          }
+        },
+        "mimeType": "audio/wav",
+        "sha256": "4bf2729f3dbdddbb412f8ce6d88aa3512a906c454c5b436dca030e865f5f5d92",
+        "sizeBytes": 32078
+      }
+    ],
+    "subjects": [
+      {
+        "defaultVariant": "raincoat",
+        "definition": {
+          "description": "雨巷中的信使",
+          "invariants": [
+            "黄色雨衣"
+          ]
+        },
+        "id": "character-main",
+        "kind": "character",
+        "name": "信使",
+        "revision": 1,
+        "status": "approved",
+        "variants": {
+          "raincoat": {
+            "description": "雨衣造型",
+            "referencePack": [
+              {
+                "asset": "preview-png",
+                "status": "approved"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "revision": 1
+}
