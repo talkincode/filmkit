@@ -89,7 +89,7 @@ function approvedMotionBundle() {
     fps: 24, durationFrames: 72, usage: ["camera_motion", "blocking"], provenance: "external Three.js white-model render",
     video: { asset: "mo-video" }, overview: { asset: "mo-overview" }, source: { asset: "mo-source" },
     keyframes: [{ id: "middle", asset: "mo-kf", momentFrame: 36, purpose: "blocking", note: "hand on cup" }],
-    review: { decision: "accepted", method: "human", reviewer: "fixture", evidence: "Full playback checked", checks: { blocking: "pass" } },
+    review: { decision: "accepted", method: "human", reviewer: "fixture", evidence: "Full playback checked", checks: { whitebox_only: "pass", scene_geometry_match: "pass", subject_blocking_match: "pass", timing_verified: "pass", keyframes_match_video: "pass", text_policy: "pass" } },
   };
   raw.dependencies.materials = [{ projectId: "demo", revision: 3, status: "approved", actorId: "fixture", createdAt: "2026-10-01T00:00:00Z", operationId: "approve", document: doc }];
   raw.dependencies.compositionBaselines = [{ id: "episode-001", revision: 1, document: baseline }];
@@ -111,6 +111,41 @@ test("a pinned approved dynamic reference delivers video, keyframes, overview an
   expect(film.assets["ref-mo-source"].kind).toBe("file");
   expect(film.scenes[0].produces.video).toBe("./assets/shot-001.mp4");
   expect(conversion.fetch.map((f) => f.assetId)).toEqual(expect.arrayContaining(["mo-video", "mo-overview", "mo-source", "mo-kf"]));
+});
+
+test("an approved status cannot replace six passed, attributable review checks", () => {
+  for (const check of ["whitebox_only", "scene_geometry_match", "subject_blocking_match", "timing_verified", "keyframes_match_video", "text_policy"]) {
+    const raw = approvedMotionBundle();
+    raw.dependencies.materials[0].document.review.checks[check] = "unknown";
+    expect(() => parseBundle(raw)).toThrow(`passed ${check} check`);
+  }
+  const raw = approvedMotionBundle();
+  raw.dependencies.materials[0].document.review.evidence = "";
+  expect(() => parseBundle(raw)).toThrow("attributable review evidence");
+});
+
+test("source MIME is opaque and always remains an archive asset, including image or video MIME", () => {
+  for (const mimeType of ["image/png", "video/mp4", "application/octet-stream"]) {
+    const raw = approvedMotionBundle();
+    raw.dependencies.assets.find((a: {id: string}) => a.id === "mo-source").mimeType = mimeType;
+    const conversion = convertBundle(parseBundle(raw), "demo");
+    const film = YAML.parse(conversion.yaml);
+    expect(film.assets["ref-mo-source"].kind).toBe("file");
+    expect(film.scenes[0].intent.references).not.toContain("ref-mo-source");
+    expect(film.metadata.annotations["vflow.shots"]["shot-001"].motionReferences[0].source.asset).toBe("mo-source");
+  }
+});
+
+test("offline motion material rejects aliased roles, duplicate moments and undeclared keyframe usage", () => {
+  const alias = approvedMotionBundle();
+  alias.dependencies.materials[0].document.source.asset = "mo-overview";
+  expect(() => parseBundle(alias)).toThrow("must be distinct");
+  const duplicate = approvedMotionBundle();
+  duplicate.dependencies.materials[0].document.keyframes.push({ id: "another", asset: "another-frame", momentFrame: 36, purpose: "blocking" });
+  expect(() => parseBundle(duplicate)).toThrow("must be distinct");
+  const usage = approvedMotionBundle();
+  usage.dependencies.materials[0].document.keyframes[0].purpose = "action_timing";
+  expect(() => parseBundle(usage)).toThrow("not declared");
 });
 
 test("candidate dynamic references are not treated as approved, and unpinned revisions are ignored", () => {
