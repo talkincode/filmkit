@@ -89,10 +89,10 @@ function makeBundle() {
 
 let p: Project;
 let stub: Stub;
-beforeEach(() => {
+beforeEach(async () => {
   p = project();
   const { bundle, assets } = makeBundle();
-  stub = startStub({ bundle, assets, project: PROJECT, composition: COMPOSITION });
+  stub = await startStub({ bundle, assets, project: PROJECT, composition: COMPOSITION });
 });
 afterEach(() => {
   stub.stop();
@@ -230,6 +230,7 @@ describe("pull: failures leave the project exactly as it was", () => {
     stub.behavior.truncate = "clip-1";
     const r = await run(pullArgs());
     expect(r.exitCode).toBe(4);
+    expect(r.stderr).toContain("download interrupted"); // for the right reason, not an incidental failure
     expect(tree()).toEqual([]);
   });
 
@@ -271,7 +272,7 @@ describe("pull: failures leave the project exactly as it was", () => {
     stub.stop();
     const { bundle, assets } = makeBundle();
     bundle.composition.format.width = 321; // filmkit needs even dimensions
-    stub = startStub({ bundle, assets, project: PROJECT, composition: COMPOSITION });
+    stub = await startStub({ bundle, assets, project: PROJECT, composition: COMPOSITION });
     const r = await run(pullArgs());
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("not legal for filmkit");

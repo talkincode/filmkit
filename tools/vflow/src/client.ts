@@ -114,10 +114,15 @@ export function createClient(base: string, creds: Credentials | undefined): Clie
       let file: FileHandle | undefined;
       try {
         file = await open(dest, "w");
-        for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-          hash.update(chunk);
-          size += chunk.byteLength;
-          await file.write(chunk);
+        // An explicit reader loop, not `for await (… of res.body)`: Bun 1.3.x's native async
+        // iterator throws "undefined is not a function" on some bodies (found by CI).
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          hash.update(value);
+          size += value.byteLength;
+          await file.write(value);
         }
         await file.close();
         file = undefined;
