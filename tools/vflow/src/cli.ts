@@ -27,7 +27,7 @@ usage:
   vflow-pull fetch <bundle.json|yaml> [--base URL] [--dir .] [--force] [--json]
         bytes only: download what the bundle's film references into --dir
   vflow-pull package-motion <manifest.json> --binding <vflow-bindings.json> [--out package.json] [--force] [--json]
-        offline: verify a rendered blockout package and explicit upstream bindings; emit an unreviewed
+        offline: require a complete rendered handoff, map upstream pins/roles and verify explicit assertions; emit an unreviewed
         motion_reference candidate plus upload list (no network write, no approval, no guessed bindings)
   vflow-pull help
 

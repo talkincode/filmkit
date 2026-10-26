@@ -86,9 +86,12 @@ After `blockout render`, make a local package for the existing vflow upload and 
 vflow-pull package-motion out/manifest.json --binding vflow-bindings.json --out motion-package.json
 ```
 
-Bindings must explicitly supply `id`, `title`, `compositionId`, `compositionRevision`, `shotId`,
-`scene: {id,revision}`, `environmentVariant`, `subjects: [{kind,id,revision,variant}]`, `usage` and `provenance`.
-They must match the rendered bundle's composition/shot, scene geometry and subject revision set. The helper
+The metadata file must supply `id`, `title`, `usage` and `provenance`. The bundle must declare
+`handoff.complete: true` with no missing fields. Composition/shot, `binding.scene`,
+`binding.environment.variant`, and subjects/props (`role`, `bindingId`, decimal revision, variant) map
+deterministically into vflow pins. Geometry `kind` is never used as the vflow subject kind, and the environment
+ID is never used as a scene fallback. Optionally supply explicit `compositionId`, `compositionRevision`,
+`shotId`, `scene`, `environmentVariant` and `subjects` assertions; any mismatch is refused, not silently replaced. The helper
 re-hashes every artifact and uses ffprobe to check the actual decoded video, not just the declared metadata;
 a skipped/empty seek check is not considered verified. If usage has several purposes, also provide
 `keyframeUsages: [{momentFrame,purpose}]`; it will not guess which kind of motion each frame expresses.
