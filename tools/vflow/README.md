@@ -69,17 +69,26 @@ vflow-pull fetch bundle.json --dir .                     # bytes only, verified
 
 ## Credentials
 
-vflow sits behind Cloudflare Access; headless clients use a **service token**. Set `CF_ACCESS_CLIENT_ID` and
-`CF_ACCESS_CLIENT_SECRET` in the environment, or store them once with `filmkit vault set <NAME>` (environment wins,
-then the vault — the same precedence as `filmkit run`). They travel only in request headers and appear in no output.
-Plain `http://` is refused except for `localhost`, so a token never crosses a cleartext link.
+vflow sits behind Cloudflare Access. Two ways in, tried in this order:
 
-What the vflow side must have in place (configuration, not code):
+1. **Your own login (for designers reading their own projects).** Log in once with
+   `cloudflared access login https://vflow.talkincode.net` (a browser SSO round trip); `vflow-pull` then asks
+   `cloudflared access token` for your Access token and sends it as `cf-access-token`. Nothing to set up on the
+   vflow side: vflow projects are private to their owner, and you are the owner. The login lasts about a day; when
+   it expires the refusal says so and prints the login command. (Only for `https://` origins.)
+2. **A service token (for headless agents).** `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in the
+   environment, or stored once with `filmkit vault set <NAME>` (environment wins, then the vault — the same
+   precedence as `filmkit run`). If set, it takes precedence over the login.
+
+Either way the value travels only in request headers and appears in no output; the tool stores nothing. Plain
+`http://` is refused except for `localhost`, so a credential never crosses a cleartext link.
+
+What the vflow side must have in place for a **service token** (configuration, not code):
 
 - the token exists in Cloudflare Access and is mapped in the Worker to an owner (`allowedServiceTokens`; an unmapped
   token fails closed), and
 - the project's owner added that token's actor (e.g. `agent-…`) as a project member — `reader` is enough, this tool
-  only reads. vflow projects are private by default, so a token that is not a member sees a 404.
+  only reads. A token that is not a member sees a 404.
 
 ## Failure behaviour
 

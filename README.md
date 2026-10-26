@@ -6,7 +6,7 @@
 filmkit.yaml ─► validate ─► plan ─► storyboard ─► (agent / filmkit run 产出场景产物) ─► build ─► final.mp4
 ```
 
-> 状态：`0.6.0`（`vflow-pull`：从 vflow 读取分镜设计；此前 `0.5.0` 凭据保险库、`0.4.0` `colab-comfy`）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
+> 状态：`0.6.1`（`vflow-pull`：从 vflow 读取分镜设计，可用你自己的 Cloudflare Access 登录；此前 `0.5.0` 凭据保险库、`0.4.0` `colab-comfy`）。协议 `filmkit/v1alpha1` 仍可能变化；变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
 bun bin/filmkit.ts --version   # 版本
