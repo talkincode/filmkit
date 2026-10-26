@@ -28,27 +28,57 @@ export async function packageMotion(manifestPath: string, bindingPath: string) {
   if (!obj(manifest) || manifest.schema !== "blockout-manifest/v1alpha1") bad("manifest.schema", "expected blockout-manifest/v1alpha1");
   const m = manifest as Obj;
   if (!obj(binding)) bad("binding", "expected explicit vflow bindings");
-  const b = binding as Obj;
+  const supplied = binding as Obj;
+  if (!obj(m.handoff) || m.handoff.complete !== true || !Array.isArray(m.handoff.missing) || m.handoff.missing.length > 0) {
+    const missing = obj(m.handoff) && Array.isArray(m.handoff.missing) ? m.handoff.missing.filter(text) : [];
+    if (missing.length) fail(...missing.map((field) => invalid(`rendered bundle is missing ${field}`, { field: `manifest.${field}` })));
+    bad("manifest.handoff.complete", "a complete handoff is required; render with --handoff before packaging");
+  }
+  const declared = obj(m.binding) ? m.binding : {};
+  const revision = (value: unknown, field: string): number => {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || !pos(Number(value))) bad(field, "expected a positive decimal revision string in the rendered binding");
+    return Number(value);
+  };
+  const pin = (value: unknown, field: string) => {
+    if (!obj(value) || !stableId(value.id)) bad(field, "missing rendered id/revision binding");
+    const p = value as Obj;
+    return { id: p.id as string, revision: revision(p.revision, `${field}.revision`) };
+  };
+  const composition = pin(declared.composition, "manifest.binding.composition");
+  const shot = pin(declared.shot, "manifest.binding.shot");
+  const scene = pin(declared.scene, "manifest.binding.scene");
+  const environment = obj(declared.environment) ? declared.environment : {};
+  if (!stableId(environment.variant)) bad("manifest.binding.environment.variant", "missing rendered environment variant");
+  const subjects: { kind: string; id: string; revision: number; variant: string }[] = [];
+  for (const list of ["subjects", "props"]) {
+    if (!Array.isArray(declared[list])) bad(`manifest.binding.${list}`, "missing rendered subject/prop binding list");
+    (declared[list] as unknown[]).forEach((value, i) => {
+      const field = `manifest.binding.${list}[${i}]`;
+      if (!obj(value) || !["character", "prop"].includes(String(value.role)) || !stableId(value.bindingId) || !stableId(value.variant)) bad(field, "rendered entity needs an explicit role, upstream id and variant");
+      const s = value as Obj;
+      subjects.push({ kind: s.role as string, id: s.bindingId as string, revision: revision(s.revision, `${field}.revision`), variant: s.variant as string });
+    });
+  }
+  const mapped = { compositionId: composition.id, compositionRevision: composition.revision, shotId: shot.id, scene, environmentVariant: environment.variant as string, subjects };
+  const sortedOwners = (v: unknown) => Array.isArray(v) ? JSON.stringify(v.filter(obj).map((s) => `${s.kind}:${s.id}@${s.revision}/${s.variant}`).sort()) : undefined;
+  for (const [key, value] of Object.entries(mapped)) {
+    if (supplied[key] === undefined) continue;
+    const same = key === "subjects" ? sortedOwners(supplied[key]) === sortedOwners(value)
+      : key === "scene" ? obj(supplied[key]) && (supplied[key] as Obj).id === scene.id && (supplied[key] as Obj).revision === scene.revision
+      : supplied[key] === value;
+    if (!same) bad(`binding.${key}`, "explicit vflow binding differs from the complete rendered handoff");
+  }
+  const b: Obj = { ...supplied, ...mapped };
   const keys = ["id", "title", "compositionId", "compositionRevision", "shotId", "scene", "environmentVariant", "subjects", "usage", "provenance", "keyframeUsages"];
-  if (Object.keys(b).some((k) => !keys.includes(k))) bad("binding", "unknown binding field");
+  if (Object.keys(supplied).some((k) => !keys.includes(k))) bad("binding", "unknown binding field");
+  if (supplied.scene !== undefined && (!obj(supplied.scene) || !exactKeys(supplied.scene, ["id", "revision"]))) bad("binding.scene", "unknown scene binding field");
+  if (supplied.subjects !== undefined && (!Array.isArray(supplied.subjects) || !supplied.subjects.every((s) => obj(s) && exactKeys(s, ["kind", "id", "revision", "variant"])))) bad("binding.subjects", "unknown subject binding field");
   for (const key of ["id", "title", "compositionId", "shotId", "environmentVariant", "provenance"]) if (!text(b[key])) bad(`binding.${key}`, "required non-empty string");
   for (const key of ["id", "compositionId", "shotId", "environmentVariant"]) if (!stableId(b[key])) bad(`binding.${key}`, "must be a stable local id (no URL or composite key)");
   if ((b.title as string).length > 300 || (b.provenance as string).length > 4000) bad("binding", "title/provenance exceeds the vflow field limit");
   if (!pos(b.compositionRevision) || !obj(b.scene) || !exactKeys(b.scene, ["id", "revision"]) || !stableId(b.scene.id) || !pos(b.scene.revision)) bad("binding.scene", "scene and composition need positive fixed revisions");
   if (!Array.isArray(b.subjects) || b.subjects.length > 50 || !b.subjects.every((s) => obj(s) && exactKeys(s, ["kind", "id", "revision", "variant"]) && ["character", "prop"].includes(String(s.kind)) && stableId(s.id) && pos(s.revision) && stableId(s.variant))) bad("binding.subjects", "every subject needs kind, id, revision and explicit variant");
   if (!Array.isArray(b.usage) || !b.usage.length || !b.usage.every((u) => allowedUsage.includes(String(u))) || new Set(b.usage).size !== b.usage.length) bad("binding.usage", "choose unique motion-only usages");
-  const declared = obj(m.binding) ? m.binding : {};
-  const composition = obj(declared.composition) ? declared.composition : {};
-  const shot = obj(declared.shot) ? declared.shot : {};
-  if (composition.id !== b.compositionId || String(composition.revision) !== String(b.compositionRevision) || shot.id !== b.shotId) bad("binding.compositionId", "vflow target differs from the rendered bundle's composition/shot binding");
-  const geometry = obj(declared.environment) ? declared.environment : obj(declared.scene) ? declared.scene : undefined;
-  if (!geometry || geometry.id !== (b.scene as Obj).id || String(geometry.revision) !== String((b.scene as Obj).revision)) bad("binding.scene", "scene geometry binding differs from the rendered bundle");
-  const owners = [
-    ...(Array.isArray(declared.subjects) ? declared.subjects.filter(obj).map((s) => ({ kind: "character", id: s.bindingId, revision: s.revision })) : []),
-    ...(Array.isArray(declared.props) ? declared.props.filter(obj).map((s) => ({ kind: "prop", id: s.bindingId, revision: s.revision })) : []),
-  ];
-  const signature = (s: Obj) => `${s.kind}:${s.id}@${s.revision}`;
-  if (JSON.stringify(owners.map(signature).sort()) !== JSON.stringify((b.subjects as Obj[]).map(signature).sort())) bad("binding.subjects", "vflow subject set differs from the rendered bundle");
   const timing = obj(m.render) ? m.render : {};
   const verification = obj(m.verification) ? m.verification : {};
   if (!pos(timing.fps) || timing.fps > 240 || !pos(timing.durationFrames) || !obj(verification.seek) || verification.seek.identical !== true || !Array.isArray(verification.seek.frames) || verification.seek.frames.length === 0) bad("manifest.verification", "render must have fixed timing and successful non-empty seek verification");

@@ -330,11 +330,13 @@ fixed scene/subject versions, review and input evidence, never runs the renderer
 `tools/blockout/README.md` for the production tool and `tools/vflow/README.md` for consumption.
 
 ```bash
-blockout render ./blockout/shot.json --engine three --out ./build/reference
+blockout render ./blockout/shot.json --engine three --out ./build/reference --handoff
 vflow-pull package-motion ./build/reference/manifest.json --binding ./vflow-bindings.json --out ./motion-package.json
 ```
 
-The handoff verifies actual decoded media, file hashes and explicit upstream bindings. It only creates a local
+The handoff requires complete source bindings and verifies actual decoded media and file hashes. It maps
+scene from `binding.scene`, environment from its variant and entity type from `role` (not geometry kind);
+optional explicit binding assertions must match the source. It only creates a local
 unreviewed document/upload list; use the existing vflow MCP/REST upload and put/review/approve workflow.
 No automatic approval, no guessed subject/variant, and no model call occurs. If several motion usages are
 requested, specify each keyframe's purpose rather than relying on array order.

@@ -27,7 +27,7 @@ bun tools/blockout/bin/blockout.ts render ./shot.json --engine three --out ./ref
 bun tools/vflow/bin/vflow-pull.ts package-motion ./reference/manifest.json --binding ./vflow-bindings.json --out ./motion-package.json
 ```
 
-`vflow-bindings.json` 明确给出资料 id/title、compositionId/compositionRevision/shotId、scene@revision、environmentVariant、主体 kind/id/revision/variant、usage、provenance。多个用途时需逐帧指定 keyframeUsages。工具核对源绑定、真实视频帧数与哈希，只生成候选资料和上传清单，不写 vflow、不批准。参考默认应是生成型 `assets`，由最终场景的 `intent.references` 引用；需要白模 animatic 时另建明确用于评审的 Film。
+`vflow-bindings.json` 明确给出资料 id/title、usage、provenance。渲染包必须 `handoff.complete=true`；composition/shot 与场景取 `binding.scene`，环境取 `environment.variant`，主体取显式 role/bindingId/revision/variant（几何 kind 不映射为主体类型）。可额外给 compositionId/compositionRevision/shotId、scene@revision、environmentVariant、主体绑定作断言，不一致就拒绝。多个用途时需逐帧指定 keyframeUsages。工具核对源绑定、真实视频帧数与哈希，只生成候选资料和上传清单，不写 vflow、不批准。参考默认应是生成型 `assets`，由最终场景的 `intent.references` 引用；需要白模 animatic 时另建明确用于评审的 Film。
 
 ## 使用路径
 

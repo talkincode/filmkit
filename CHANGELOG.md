@@ -4,6 +4,15 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## 0.7.2 — complete blockout binding handoff
+
+- `package-motion` requires a complete rendered handoff and maps composition/shot, explicit scene pin,
+  environment variant and entity role/id/revision/variant directly from it. Environment definition no longer
+  substitutes for scene geometry; geometry kinds never substitute for character/prop roles.
+- Metadata still supplies id/title/usage/provenance; optional explicit binding assertions must match the
+  rendered source. Incomplete or contradictory handoffs fail before document output. Updated fixtures and
+  re-ran both real render engines through the complete vflow-to-filmkit integration.
+
 ## 0.7.1 — tighten offline motion-reference consumption
 
 - An approved flag alone no longer substitutes for attributable accepted review and all six passed checks.

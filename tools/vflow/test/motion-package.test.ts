@@ -16,7 +16,8 @@ function fixture() {
   };
   const manifest = {
     schema: "blockout-manifest/v1alpha1",
-    binding: { composition: { id: "main", revision: "1" }, shot: { id: "spell", revision: "1" }, environment: { id: "bridge", revision: "3" }, subjects: [], props: [] },
+    handoff: { complete: true, missing: [] },
+    binding: { composition: { id: "main", revision: "1" }, shot: { id: "spell", revision: "1" }, scene: { id: "bridge", revision: "3" }, environment: { id: "weather-definition", revision: "2", variant: "night" }, subjects: [], props: [] },
     render: { width: 64, height: 36, fps: 24, durationFrames: 12 },
     verification: { seek: { identical: true, frames: [0] } },
     artifacts: [artifact("reference-video", "reference.mp4", "video/mp4"), artifact("overview", "overview.png", "image/png"), artifact("keyframe", "overview.png", "image/png", { frame: 0 }), artifact("source-archive", "source.gz", "application/gzip")],
@@ -52,7 +53,7 @@ test("package-motion refuses target or subject drift, bad source hash and absent
     expect((await main(f.args)).exitCode).toBe(2);
     f.binding.shotId = "spell";
     f.binding.subjects = [{kind: "character", id: "new-person", revision: 1, variant: "default"}]; f.write();
-    expect((await main(f.args)).stderr).toContain("subject set differs");
+    expect((await main(f.args)).stderr).toContain("binding.subjects");
     f.binding.subjects = []; f.write();
     writeFileSync(f.p.path("source.gz"), "tampered bytes");
     expect((await main(f.args)).stderr).toContain("do not match");
@@ -72,6 +73,37 @@ test("upstream binding input rejects URLs, extra scene fields and oversized titl
     delete f.binding.scene.unknown;
     f.binding.title = "x".repeat(301); f.write();
     expect((await main(f.args)).stderr).toContain("field limit");
+  } finally { f.p.cleanup(); }
+});
+
+test("complete rendered bindings map scene, environment variant and role without mistaking geometry kind for identity kind", async () => {
+  const f = fixture();
+  try {
+    f.manifest.binding.subjects.push({ id: "proxy", bindingId: "actor", revision: "7", role: "character", kind: "capsule", variant: "apron" } as never);
+    delete f.binding.compositionId; delete f.binding.compositionRevision; delete f.binding.shotId;
+    delete f.binding.scene; delete f.binding.environmentVariant; delete f.binding.subjects;
+    f.write();
+    const r = await main(f.args);
+    expect(r.exitCode).toBe(0);
+    const doc = JSON.parse(r.stdout).document;
+    expect(doc).toMatchObject({ compositionId: "main", compositionRevision: 1, shotId: "spell", scene: {id: "bridge", revision: 3}, environmentVariant: "night" });
+    expect(doc.subjects).toEqual([{ kind: "character", id: "actor", revision: 7, variant: "apron" }]);
+    f.binding.environmentVariant = "day"; f.write();
+    expect((await main(f.args)).stderr).toContain("binding.environmentVariant");
+  } finally { f.p.cleanup(); }
+});
+
+test("an incomplete or contradictory handoff cannot be repaired by supplying missing bindings externally", async () => {
+  const f = fixture();
+  try {
+    f.manifest.handoff = { complete: false, missing: ["binding.scene", "subjects[0].binding.variant"] as never[] }; f.write();
+    const r = await main(f.args);
+    expect(r.exitCode).toBe(2);
+    const errors = JSON.parse(r.stderr).errors;
+    expect(errors.map((e: {field: string}) => e.field)).toEqual(["manifest.binding.scene", "manifest.subjects[0].binding.variant"]);
+    f.manifest.handoff = { complete: true, missing: [] };
+    f.manifest.binding.scene = undefined as never; f.write();
+    expect((await main(f.args)).exitCode).toBe(2); // environment.id must not be used as a scene fallback
   } finally { f.p.cleanup(); }
 });
 

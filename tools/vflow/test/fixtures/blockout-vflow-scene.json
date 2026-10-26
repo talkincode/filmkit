@@ -5,7 +5,8 @@
   "binding": {
     "composition": { "id": "main", "revision": "1" },
     "shot": { "id": "spell", "revision": "1" },
-    "environment": { "id": "bridge", "revision": "3" }
+    "scene": { "id": "bridge", "revision": "3" },
+    "environment": { "variant": "night" }
   },
   "timing": { "fps": 24, "durationFrames": 96 },
   "frame": { "width": 640, "height": 360 },
@@ -18,7 +19,7 @@
     ]
   },
   "subjects": [{
-    "id": "suwei-proxy", "binding": { "id": "suwei", "revision": "1" },
+    "id": "suwei-proxy", "binding": { "id": "suwei", "revision": "1", "variant": "default" },
     "kind": "humanoid", "height": 1.7, "color": "#eeeeee",
     "keyframes": [
       { "frame": 0, "pos": [-1.5, 0, 0], "rot": [0, 0, 0] },
@@ -28,7 +29,7 @@
     ]
   }],
   "props": [{
-    "id": "boat-proxy", "binding": { "id": "boat", "revision": "1" },
+    "id": "boat-proxy", "binding": { "id": "boat", "revision": "1", "variant": "default" },
     "shape": { "type": "box", "size": [0.4, 0.2, 0.2] }, "color": "#bbbbbb",
     "keyframes": [{ "frame": 0, "pos": [0.06606715915966303, 0.5362988410921657, 1.1844104686384416], "rot": [102.5, 0, 15.157894736842113] }],
     "attach": [{ "subject": "suwei-proxy", "joint": "handR", "from": 48, "to": 95, "offset": [0, 0, 0] }]
