@@ -1,0 +1,624 @@
+{
+  "apiVersion": "vflow/v2",
+  "composition": {
+    "apiVersion": "vflow/v2",
+    "audioTracks": [],
+    "authoring": {
+      "materials": [
+        {
+          "id": "suwei-face",
+          "revision": 3
+        },
+        {
+          "id": "suwei-body",
+          "revision": 3
+        },
+        {
+          "id": "boat-views",
+          "revision": 3
+        },
+        {
+          "id": "bridge",
+          "revision": 3
+        },
+        {
+          "id": "bridge-night",
+          "revision": 3
+        }
+      ],
+      "policyVersion": "reference-authoring/1"
+    },
+    "format": {
+      "fps": 30,
+      "height": 1080,
+      "width": 1920
+    },
+    "id": "main",
+    "project": "reference-test",
+    "sequence": [
+      "spell",
+      "boat"
+    ],
+    "shots": {
+      "boat": {
+        "candidates": {
+          "audios": [],
+          "images": [],
+          "videos": []
+        },
+        "dependsOn": [],
+        "description": "boat",
+        "durationFrames": 120,
+        "prompts": {},
+        "references": {
+          "images": [],
+          "videos": []
+        },
+        "selected": {
+          "audio": null,
+          "video": null
+        },
+        "subjects": [
+          {
+            "subjectId": "suwei",
+            "subjectRevision": 1
+          },
+          {
+            "subjectId": "boat",
+            "subjectRevision": 1
+          }
+        ]
+      },
+      "spell": {
+        "candidates": {
+          "audios": [],
+          "images": [],
+          "videos": []
+        },
+        "dependsOn": [],
+        "description": "spell",
+        "durationFrames": 120,
+        "prompts": {},
+        "references": {
+          "images": [],
+          "videos": []
+        },
+        "selected": {
+          "audio": null,
+          "video": null
+        },
+        "subjects": [
+          {
+            "subjectId": "suwei",
+            "subjectRevision": 1
+          },
+          {
+            "subjectId": "boat",
+            "subjectRevision": 1
+          }
+        ]
+      }
+    },
+    "title": "关键镜头"
+  },
+  "dependencies": {
+    "assets": [
+      {
+        "height": 180,
+        "id": "body-front",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "height": 180,
+        "id": "body-side",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "height": 180,
+        "id": "face-front",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "height": 180,
+        "id": "face-side",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "height": 180,
+        "id": "prop-front",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "height": 180,
+        "id": "prop-side",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "height": 180,
+        "id": "scene-front",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      },
+      {
+        "height": 180,
+        "id": "scene-side",
+        "lineage": {
+          "mediaDimensions": {
+            "source": "file-header",
+            "verified": true
+          }
+        },
+        "mimeType": "image/png",
+        "sha256": "cdd5305162d50a27fa38bf6314e221207fac460f7004a358b122aaae651f0a0d",
+        "sizeBytes": 7549,
+        "width": 320
+      }
+    ],
+    "compositionBaselines": [],
+    "materials": [
+      {
+        "actorId": "alice@talkincode.net",
+        "createdAt": "2026-10-26T14:30:57.626Z",
+        "document": {
+          "category": "character_face",
+          "conflicts": [],
+          "id": "suwei-face",
+          "kind": "reference_pack",
+          "owner": {
+            "id": "suwei",
+            "kind": "character",
+            "revision": 1,
+            "variant": "default"
+          },
+          "schemaVersion": "vflow/reference-workflow/v1",
+          "sources": [],
+          "title": "suwei-face",
+          "views": [
+            {
+              "asset": "face-front",
+              "id": "front",
+              "owner": {
+                "id": "suwei",
+                "kind": "character",
+                "revision": 1,
+                "variant": "default"
+              },
+              "purpose": "face_identity",
+              "review": {
+                "checks": {
+                  "face_visible": "pass",
+                  "identity_consistent": "pass",
+                  "neutral_lighting": "pass",
+                  "single_identity": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "front"
+            },
+            {
+              "asset": "face-side",
+              "id": "side",
+              "owner": {
+                "id": "suwei",
+                "kind": "character",
+                "revision": 1,
+                "variant": "default"
+              },
+              "purpose": "face_identity",
+              "review": {
+                "checks": {
+                  "face_visible": "pass",
+                  "identity_consistent": "pass",
+                  "neutral_lighting": "pass",
+                  "single_identity": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "side"
+            }
+          ]
+        },
+        "operationId": "approve-suwei-face",
+        "projectId": "reference-test",
+        "revision": 3,
+        "status": "approved"
+      },
+      {
+        "actorId": "alice@talkincode.net",
+        "createdAt": "2026-10-26T14:30:57.628Z",
+        "document": {
+          "category": "character_body",
+          "conflicts": [],
+          "id": "suwei-body",
+          "kind": "reference_pack",
+          "owner": {
+            "id": "suwei",
+            "kind": "character",
+            "revision": 1,
+            "variant": "default"
+          },
+          "schemaVersion": "vflow/reference-workflow/v1",
+          "sources": [],
+          "title": "suwei-body",
+          "views": [
+            {
+              "asset": "body-front",
+              "id": "front",
+              "owner": {
+                "id": "suwei",
+                "kind": "character",
+                "revision": 1,
+                "variant": "default"
+              },
+              "purpose": "wardrobe",
+              "review": {
+                "checks": {
+                  "body_proportion": "pass",
+                  "grounding": "pass",
+                  "single_identity": "pass",
+                  "wardrobe_consistent": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "front"
+            },
+            {
+              "asset": "body-side",
+              "id": "side",
+              "owner": {
+                "id": "suwei",
+                "kind": "character",
+                "revision": 1,
+                "variant": "default"
+              },
+              "purpose": "wardrobe",
+              "review": {
+                "checks": {
+                  "body_proportion": "pass",
+                  "grounding": "pass",
+                  "single_identity": "pass",
+                  "wardrobe_consistent": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "side"
+            }
+          ]
+        },
+        "operationId": "approve-suwei-body",
+        "projectId": "reference-test",
+        "revision": 3,
+        "status": "approved"
+      },
+      {
+        "actorId": "alice@talkincode.net",
+        "createdAt": "2026-10-26T14:30:57.630Z",
+        "document": {
+          "category": "prop_views",
+          "conflicts": [],
+          "id": "boat-views",
+          "kind": "reference_pack",
+          "owner": {
+            "id": "boat",
+            "kind": "prop",
+            "revision": 1,
+            "variant": "default"
+          },
+          "schemaVersion": "vflow/reference-workflow/v1",
+          "sources": [],
+          "title": "boat-views",
+          "views": [
+            {
+              "asset": "prop-front",
+              "id": "front",
+              "owner": {
+                "id": "boat",
+                "kind": "prop",
+                "revision": 1,
+                "variant": "default"
+              },
+              "purpose": "prop",
+              "review": {
+                "checks": {
+                  "scale_material_state": "pass",
+                  "shape_consistent": "pass",
+                  "single_prop": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "front"
+            },
+            {
+              "asset": "prop-side",
+              "id": "side",
+              "owner": {
+                "id": "boat",
+                "kind": "prop",
+                "revision": 1,
+                "variant": "default"
+              },
+              "purpose": "prop",
+              "review": {
+                "checks": {
+                  "scale_material_state": "pass",
+                  "shape_consistent": "pass",
+                  "single_prop": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "side"
+            }
+          ]
+        },
+        "operationId": "approve-boat-views",
+        "projectId": "reference-test",
+        "revision": 3,
+        "status": "approved"
+      },
+      {
+        "actorId": "alice@talkincode.net",
+        "createdAt": "2026-10-26T14:30:57.636Z",
+        "document": {
+          "anchors": {
+            "deck": {
+              "description": "船甲板",
+              "supportSurface": true
+            },
+            "stone_rail": {
+              "description": "苏苇伏身的石栏",
+              "supportSurface": true
+            }
+          },
+          "environmentVariants": {
+            "dawn": {
+              "state": "水位正常",
+              "time": "黎明",
+              "weather": "晴"
+            },
+            "night": {
+              "state": "水位未上涨，水流向东",
+              "time": "夜晚",
+              "weather": "薄雾"
+            }
+          },
+          "geometry": "三拱旧桥，船沿河道前进，摄影机保持河道南侧",
+          "id": "bridge",
+          "kind": "scene",
+          "review": {
+            "checks": {
+              "environment_defined": "pass",
+              "geometry_consistent": "pass",
+              "support_surfaces": "pass"
+            },
+            "decision": "accepted",
+            "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+            "method": "human",
+            "reviewer": "alice@talkincode.net"
+          },
+          "schemaVersion": "vflow/reference-workflow/v1",
+          "title": "旧桥"
+        },
+        "operationId": "approve-bridge",
+        "projectId": "reference-test",
+        "revision": 3,
+        "status": "approved"
+      },
+      {
+        "actorId": "alice@talkincode.net",
+        "createdAt": "2026-10-26T14:30:57.638Z",
+        "document": {
+          "category": "scene_views",
+          "conflicts": [],
+          "id": "bridge-night",
+          "kind": "reference_pack",
+          "owner": {
+            "id": "bridge",
+            "kind": "scene",
+            "revision": 3,
+            "variant": "night"
+          },
+          "schemaVersion": "vflow/reference-workflow/v1",
+          "sources": [],
+          "title": "bridge-night",
+          "views": [
+            {
+              "asset": "scene-front",
+              "cameraView": "wide",
+              "environmentVariant": "night",
+              "id": "front",
+              "owner": {
+                "id": "bridge",
+                "kind": "scene",
+                "revision": 3,
+                "variant": "night"
+              },
+              "purpose": "environment",
+              "review": {
+                "checks": {
+                  "camera_identified": "pass",
+                  "environment_consistent": "pass",
+                  "geometry_consistent": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "front"
+            },
+            {
+              "asset": "scene-side",
+              "cameraView": "close",
+              "environmentVariant": "night",
+              "id": "side",
+              "owner": {
+                "id": "bridge",
+                "kind": "scene",
+                "revision": 3,
+                "variant": "night"
+              },
+              "purpose": "environment",
+              "review": {
+                "checks": {
+                  "camera_identified": "pass",
+                  "environment_consistent": "pass",
+                  "geometry_consistent": "pass"
+                },
+                "decision": "accepted",
+                "evidence": "Synthetic acceptance fixture: each independent image and metadata inspected for this test.",
+                "method": "human",
+                "reviewer": "alice@talkincode.net"
+              },
+              "view": "side"
+            }
+          ]
+        },
+        "operationId": "approve-bridge-night",
+        "projectId": "reference-test",
+        "revision": 3,
+        "status": "approved"
+      }
+    ],
+    "subjects": [
+      {
+        "defaultVariant": "default",
+        "definition": {
+          "description": "苏苇在石栏施法，不在水中",
+          "invariants": [
+            "固定身份与结构"
+          ]
+        },
+        "id": "suwei",
+        "kind": "character",
+        "name": "suwei",
+        "revision": 1,
+        "status": "approved",
+        "variants": {
+          "default": {
+            "description": "默认状态",
+            "referencePack": [
+              {
+                "asset": "face-front",
+                "status": "approved"
+              },
+              {
+                "asset": "face-side",
+                "status": "approved"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "defaultVariant": "default",
+        "definition": {
+          "description": "船首方向与船尾灯固定",
+          "invariants": [
+            "固定身份与结构"
+          ]
+        },
+        "id": "boat",
+        "kind": "prop",
+        "name": "boat",
+        "revision": 1,
+        "status": "approved",
+        "variants": {
+          "default": {
+            "description": "默认状态",
+            "referencePack": [
+              {
+                "asset": "prop-front",
+                "status": "approved"
+              },
+              {
+                "asset": "prop-side",
+                "status": "approved"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "revision": 1
+}

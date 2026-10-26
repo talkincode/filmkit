@@ -294,6 +294,34 @@ per second, floor 2s, `durationPolicy: min` so the real TTS decides the floor).
 Title-area prose before the first `##` is ignored; remote images stay yours.
 Next: `filmkit plan`, produce narration and pictures, then `filmkit build`.
 
+## Starting from a vflow design (`vflow-pull`)
+
+When the story was designed in vflow (shots, descriptions, material images, character and prop reference
+sheets — usually by someone else, over MCP), read it in instead of re-describing it. The bridge is one-way and
+read-only: nothing is ever written back to vflow.
+
+```bash
+export VFLOW_BASE_URL=https://vflow.talkincode.net        # CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET in the env or the vault
+vflow-pull pull --project <project> --composition <composition> [--revision N]   # writes ./filmkit.yaml
+```
+
+It writes a new film (refuses to overwrite without `--force`) and downloads, sha256-verified, the pictures the shots
+use. Per shot you get `intent.description` and `intent.action` (from the video prompt), `intent.references`
+(the shot's materials plus the **approved** reference images of every pinned character/prop, variant resolved), and
+a planned `duration`. Pin `--revision` so the import is reproducible. Shots the designers already picked a clip for
+arrive with that clip in place; the rest are `place files` nodes in `filmkit plan`.
+
+`impl` is `filmkit/static` and `params` is empty on purpose — the tool choice is yours. Read
+`metadata.annotations["vflow.shots"]` for roles, notes and views of each reference, `["vflow.subjects"]` for each
+character's description and invariants (use them when you write prompts: they are the consistency rules), then
+choose a Profile per shot and move the right `intent.references` into its `params` (some tools take only a few
+reference images: pick, and say which you picked). Cost discipline below still applies.
+
+If the agent already has the vflow MCP tools, take the structure from `composition_export` (save the result as a
+file) and use `vflow-pull convert <bundle>`, then `vflow-pull fetch <bundle>` for the bytes: MCP
+cannot carry asset bytes. A pull that fails changes nothing (exit `3` = credentials, `4` = download or integrity).
+Details: `tools/vflow/README.md`.
+
 ## Music that must hit the picture cuts (`fit: exact`)
 
 ```yaml
