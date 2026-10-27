@@ -4,6 +4,12 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## 0.8.0 — fixed-revision vflow assembly
+
+- Add opt-in `vflow-pull pull|convert|fetch --mode assemble`: fixed shot durations, selected video/audio and global audio windows. Source trims are explicit local builtin ffmpeg nodes, never executed during import. Default production import and read-only boundaries stay unchanged; no Film Schema or data migration.
+- Install `vflow-pull` alongside filmkit through package bin links and the generated Homebrew formula.
+- Align motion keyframe uniqueness with vflow: `(momentFrame, purpose)` is unique, not moment alone. Add real cross-repository strict-project assembly, permission revocation and approved-motion contract checks in `scripts/e2e-vflow-handoff.ts`.
+
 ## 0.7.3 — explicit seek verification status
 
 - `package-motion` now also requires `verification.seek.status: verified`, alongside identical pixels and

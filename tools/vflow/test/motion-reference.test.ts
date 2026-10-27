@@ -148,6 +148,17 @@ test("offline motion material rejects aliased roles, duplicate moments and undec
   expect(() => parseBundle(usage)).toThrow("not declared");
 });
 
+test("same frame with different declared purposes is accepted without merging semantic assets", () => {
+  const raw = approvedMotionBundle();
+  const doc = raw.dependencies.materials[0].document;
+  doc.keyframes.push({ id: "camera", asset: "camera-frame", momentFrame: 36, purpose: "camera_motion" });
+  raw.dependencies.assets.push({ id: "camera-frame", mimeType: "image/png", sha256: "e".repeat(64), sizeBytes: 10 });
+  const conversion = convertBundle(parseBundle(raw), "fixture");
+  const motion = YAML.parse(conversion.yaml).metadata.annotations["vflow.shots"]["shot-001"].motionReferences[0];
+  expect(motion.keyframes.map((f: { purpose: string }) => f.purpose)).toEqual(["blocking", "camera_motion"]);
+  expect(conversion.fetch.some((f) => f.assetId === "camera-frame")).toBe(true);
+});
+
 test("candidate dynamic references are not treated as approved, and unpinned revisions are ignored", () => {
   const raw = approvedMotionBundle();
   raw.dependencies.materials[0].status = "candidate";

@@ -1,11 +1,12 @@
 {
   "name": "filmkit",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "Agent-oriented video orchestration compiler: filmkit.yaml -> validate -> plan -> build",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "filmkit": "./bin/filmkit.ts"
+    "filmkit": "./bin/filmkit.ts",
+    "vflow-pull": "./tools/vflow/bin/vflow-pull.ts"
   },
   "files": [
     "bin",

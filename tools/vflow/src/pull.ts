@@ -15,7 +15,7 @@ import { FilmkitError } from "../../../src/errors.ts";
 import { loadFilm } from "../../../src/film.ts";
 import { parseBundle } from "./bundle.ts";
 import { type Client } from "./client.ts";
-import { type Conversion, convertBundle } from "./convert.ts";
+import { type Conversion, type ImportMode, convertBundle } from "./convert.ts";
 import { fail, io } from "./errors.ts";
 import { fetchFiles, type FetchResult } from "./files.ts";
 
@@ -104,25 +104,25 @@ export function writeNewFile(path: string, text: string, force = false): void {
   writeAtomic(out, text);
 }
 
-export function convertFile(opts: { bundlePath: string; out: string; force: boolean }): Report {
+export function convertFile(opts: { bundlePath: string; out: string; force: boolean; mode?: ImportMode }): Report {
   const out = resolve(opts.out);
   refuseOverwrite(out, opts.force);
   const bundle = readBundleFile(opts.bundlePath);
-  const conversion = convertBundle(bundle, `${bundle.composition.project}/${bundle.composition.id}${bundle.revision !== undefined ? `@${bundle.revision}` : ""}`);
+  const conversion = convertBundle(bundle, `${bundle.composition.project}/${bundle.composition.id}${bundle.revision !== undefined ? `@${bundle.revision}` : ""}`, opts.mode);
   assertLegalFilm(conversion.yaml);
   writeAtomic(out, conversion.yaml);
   return report(conversion, { out: opts.out }, dirname(out));
 }
 
-export async function fetchFromFile(opts: { bundlePath: string; client: Client; dir: string; force: boolean }): Promise<Report> {
+export async function fetchFromFile(opts: { bundlePath: string; client: Client; dir: string; force: boolean; mode?: ImportMode }): Promise<Report> {
   const bundle = readBundleFile(opts.bundlePath);
-  const conversion = convertBundle(bundle, "fetch");
+  const conversion = convertBundle(bundle, "fetch", opts.mode);
   const dir = resolve(opts.dir);
   const result = await fetchFiles({ client: opts.client, project: bundle.composition.project, items: conversion.fetch, dir, force: opts.force });
   return report(conversion, { bundle: opts.bundlePath, ...counts(result) }, dir);
 }
 
-export async function pull(opts: { client: Client; project: string; composition: string; revision?: number; out: string; force: boolean }): Promise<Report> {
+export async function pull(opts: { client: Client; project: string; composition: string; revision?: number; out: string; force: boolean; mode?: ImportMode }): Promise<Report> {
   const out = resolve(opts.out);
   const dir = dirname(out);
   refuseOverwrite(out, opts.force); // before any request
@@ -130,7 +130,7 @@ export async function pull(opts: { client: Client; project: string; composition:
   const exported = await opts.client.exportBundle(opts.project, opts.composition, opts.revision);
   const bundle = parseBundle(exported, `${opts.project}/${opts.composition}`);
   const rev = bundle.revision !== undefined ? String(bundle.revision) : "head";
-  const conversion = convertBundle(bundle, `${bundle.composition.project}/${bundle.composition.id}@${rev}`);
+  const conversion = convertBundle(bundle, `${bundle.composition.project}/${bundle.composition.id}@${rev}`, opts.mode);
   assertLegalFilm(conversion.yaml); // still nothing on disk
 
   const bundlePath = join(dir, "vflow", `${bundle.composition.id.replace(/[^A-Za-z0-9._-]+/g, "_")}@${rev}.bundle.json`);

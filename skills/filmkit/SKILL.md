@@ -322,6 +322,12 @@ file) and use `vflow-pull convert <bundle>`, then `vflow-pull fetch <bundle>` fo
 cannot carry asset bytes. A pull that fails changes nothing (exit `3` = not logged in / credentials rejected — the error prints the login command, `4` = download or integrity).
 Details: `tools/vflow/README.md`.
 
+### Assemble an already selected vflow cut
+
+Use `vflow-pull pull --project <project> --composition <composition> --revision N --mode assemble --out ./vflow-rN/filmkit.yaml` when the upstream design has selected video for every shot. The default `--mode production` remains the original reference-oriented import. For offline conversion, pass `--mode assemble` to **both** `convert` and `fetch`.
+
+Assembly requires explicit shot durations, uses `exact` (long clips trim, short clips freeze), imports selected audio as replacement for clip sound, and imports global audio windows. Global audio source offsets become builtin ffmpeg nodes: inspect `filmkit plan`, review the storyboard, explicitly run those nodes, then build. Pull never runs a tool. No candidates become selected footage and no remote state is written. Reference readiness and visual quality still require separate review. Use a new output directory for another revision: `--force` replaces, it does not merge local Profiles/params or paid outputs. See `tools/vflow/README.md`.
+
 ## Dynamic white-model references (Three.js / Blender)
 
 Use white-model animation to settle blocking, camera motion, contact/occlusion and action timing before final
