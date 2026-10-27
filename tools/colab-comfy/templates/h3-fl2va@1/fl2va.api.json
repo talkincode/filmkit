@@ -1,0 +1,213 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "lora_name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "strength_model": 1.0
+    }
+  },
+  "3": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    }
+  },
+  "20": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "first_frame_placeholder.png"
+    }
+  },
+  "21": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "audio_placeholder.wav"
+    }
+  },
+  "6": {
+    "class_type": "MiniMaxH3ImageToVideo",
+    "inputs": {
+      "clip": [
+        "3",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ],
+      "prompt": "<竖屏，跟拍镜头，摄影机在她前方匀速后退，中景>首帧里同一位成年中国女律师（三十出头，成熟写实，脸型、五官、发色、发型与首帧完全一致，不变年轻、不变老），齐耳短黑发别在耳后，黑色西装，白衬衫，无首饰。左手抱着黑色文件夹。她从第一帧起就正面朝向镜头，已经在沿现代律所走廊朝镜头稳步走来（不靠墙、不起身、不转身），边走边直视镜头，用普通话快速、冷静地说话，口型与台词同步：“央企欠你钱，一拖再拖？别忍了。” 走廊一侧是玻璃隔断的办公室，背景浅景深虚化但持续在动：行走视差明显，背景同事走动、交谈。她依次经过落地窗和天花板筒灯，脸和西装上的光影随之明暗变化。表情克制、沉稳，不露齿笑，脸型、五官、年龄与首帧完全一致，场景不变。背景保持柔和虚化，光影持续流动。写实电影质感，自然皮肤纹理。只有她的人声，无背景音乐，画面中不出现任何文字。",
+      "width": 704,
+      "height": 1280,
+      "length": 90,
+      "first_frame": [
+        "20",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "MiniMaxH3AddGuide",
+    "inputs": {
+      "positive": [
+        "6",
+        0
+      ],
+      "latent": [
+        "6",
+        1
+      ],
+      "frame_idx": 0,
+      "audio_vae": [
+        "5",
+        0
+      ],
+      "audio": [
+        "21",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "res_multistep"
+    }
+  },
+  "8": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": [
+        "2",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": 8,
+      "denoise": 1.0
+    }
+  },
+  "9": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 20261104
+    }
+  },
+  "10": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "2",
+        0
+      ],
+      "conditioning": [
+        "16",
+        0
+      ]
+    }
+  },
+  "11": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "9",
+        0
+      ],
+      "guider": [
+        "10",
+        0
+      ],
+      "sampler": [
+        "7",
+        0
+      ],
+      "sigmas": [
+        "8",
+        0
+      ],
+      "latent_image": [
+        "6",
+        1
+      ]
+    }
+  },
+  "12": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "11",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    }
+  },
+  "13": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "11",
+        0
+      ],
+      "vae": [
+        "5",
+        0
+      ]
+    }
+  },
+  "14": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 24,
+      "bit_depth": "auto",
+      "color_space": "sRGB",
+      "images": [
+        "12",
+        0
+      ],
+      "audio": [
+        "13",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "fk/out",
+      "format": "auto",
+      "format.codec": "auto",
+      "codec": "auto",
+      "video-preview": "",
+      "video": [
+        "14",
+        0
+      ]
+    }
+  }
+}

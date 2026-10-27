@@ -1,0 +1,61 @@
+{
+  "template": "h3-ref2va@2",
+  "fps": 24,
+  "variants": {
+    "dense": "dense.api.json",
+    "vsa": "vsa.api.json"
+  },
+  "bind": {
+    "prompt": [
+      "6",
+      "prompt"
+    ],
+    "width": [
+      "6",
+      "width"
+    ],
+    "height": [
+      "6",
+      "height"
+    ],
+    "frames": [
+      "6",
+      "length"
+    ],
+    "seed": [
+      "8",
+      "noise_seed"
+    ],
+    "sparsity": [
+      "144",
+      "sparsity"
+    ],
+    "outputPrefix": [
+      "16",
+      "filename_prefix"
+    ]
+  },
+  "refs": {
+    "loadNode": "50",
+    "target": "6",
+    "inputPattern": "ref_images.ref_image_{i}",
+    "indexBase": 0,
+    "max": 3
+  },
+  "audioGuide": {
+    "loadNode": "60",
+    "guideNode": "61",
+    "positive": ["6", 0],
+    "latent": ["6", 1],
+    "audioVae": ["5", 0],
+    "consumer": ["11", "conditioning"],
+    "frameIdx": 0,
+    "requiredClasses": ["LoadAudio", "MiniMaxH3AddGuide"]
+  },
+  "requiredClasses": [
+    "MiniMaxH3ReferenceToVideo",
+    "Ref2VAVSAGatePatch",
+    "MiniMaxH3SigmaShift",
+    "SaveVideo"
+  ]
+}

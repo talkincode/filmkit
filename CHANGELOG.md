@@ -4,6 +4,29 @@ Notable changes per release. The protocol version (`filmkit/v1alpha1`) is separa
 from the package version: the package may add Profiles and commands without
 changing the protocol.
 
+## Unreleased
+
+- **`colab-comfy`: template `h3-fl2va@1` / task `h3-fl2va` (first frame + driving audio).**
+  The 李律 EP01 / 微辣 EP03 lip-sync workflow: fl2va pruned int8 + fl2v turbo 8-step LoRA,
+  `MiniMaxH3ImageToVideo` from `params.image`, `LoadAudio → MiniMaxH3AddGuide (frame 0)` from
+  `params.audio` (both required), res_multistep 8 steps, cfg 1. New pinned weights (fl2va int8,
+  8-step LoRA, with sha256). `validate` refuses a first frame whose aspect differs from the
+  resolution (the node stretches it). Estimate key `fl2va-8step`: L4 fitted to EP03/EP01, A100
+  derived and flagged uncalibrated. Run records carry `params.image`.
+  The audio guide's warm factor (1.03) is now measured on A100 (EP004: +2.5 %).
+
+- **`colab-comfy`: template `h3-ref2va@2` with an audio guide for lip sync (`params.audio`).**
+  @2 is @1 (same workflows, models, pins; @1 stays frozen and refuses `audio`) plus an
+  `audioGuide` binding. A `h3-ref2va@2` scene can declare a
+  film-relative WAV (its voice-over segment); the helper uploads it and wires
+  `LoadAudio → MiniMaxH3AddGuide (frame_idx 0) → BasicGuider` into the H3 Ref2VA workflow, as
+  李律 EP01 did with fl2va, so the mouth follows the real VO instead of only image + prompt.
+  `validate` checks the RIFF/WAVE header and refuses audio longer than the generated clip; the
+  audio bytes are in the cache key (and filmkit marks the node stale when the WAV changes); the run
+  record carries `params.audio`. @1 jobs bind exactly as before (cache keys unchanged).
+  Estimate: guided jobs' warm time × 1.03 (`estimates.json` `audioGuide`, derived from token count,
+  uncalibrated). Not yet run on real hardware.
+
 ## 0.7.3 — explicit seek verification status
 
 - `package-motion` now also requires `verification.seek.status: verified`, alongside identical pixels and

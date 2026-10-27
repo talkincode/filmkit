@@ -15,7 +15,7 @@ import { sha256File } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
 import { estimateCU, loadEstimates } from "./estimate.ts";
 import { DEFAULT_GPU, decide } from "./gate.ts";
-import { jobFrames, normalizeJob, resolveRefs, validateJob, variantKey } from "./job.ts";
+import { estimateKey, jobFrames, normalizeJob, resolveInputs, usesAudioGuideSplice, validateJob, variantKey } from "./job.ts";
 import { buildRecord } from "./record.ts";
 import { loadTemplate } from "./workflow.ts";
 
@@ -61,8 +61,8 @@ export async function materialize(o: MaterializeOptions): Promise<{ report: Mate
   const out = resolve(o.cwd, o.out!);
   const recordPath = resolve(o.cwd, o.record!);
 
-  const refs = resolveRefs(job, o.cwd);
-  const infos = Array.from({ length: job.candidates }, (_, index) => ({ index, seed: job.seed + index, ...jobKeyInfo(tpl, job, index, refs) }));
+  const inputs = resolveInputs(job, o.cwd);
+  const infos = Array.from({ length: job.candidates }, (_, index) => ({ index, seed: job.seed + index, ...jobKeyInfo(tpl, job, index, inputs) }));
 
   // Step 2: several candidates need a human/agent decision; list where to look.
   if (job.candidates > 1 && job.pick === undefined) {
@@ -85,7 +85,7 @@ export async function materialize(o: MaterializeOptions): Promise<{ report: Mate
   // Step 3: cache miss.
   if (!cacheHit(o.cwd, winner.key)) {
     const frames = jobFrames(job, tpl);
-    const jobEstimate = { node: job.node ?? "job", candidate: winner.index, variant: variantKey(job), width: job.width, height: job.height, frames };
+    const jobEstimate = { node: job.node ?? "job", candidate: winner.index, variant: estimateKey(job, tpl), width: job.width, height: job.height, frames, audioGuide: usesAudioGuideSplice(job, tpl) };
     const est = estimateCU([jobEstimate], loadEstimates(), { gpu: DEFAULT_GPU });
     const id = job.node ?? "<id>";
     if (!truthy(o.env.COLAB_COMFY_YES)) {

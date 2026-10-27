@@ -6,7 +6,7 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } fro
 import { resolve } from "node:path";
 import { sha256Hex } from "./canonical.ts";
 import { ColabComfyError, EXIT, invalid, type Detail } from "./errors.ts";
-import { framesFor, type BindInput, type ResolvedRef, type Template, variantFor } from "./workflow.ts";
+import { conditioningSpec, framesFor, type BindInput, type ResolvedAudio, type ResolvedInputs, type ResolvedRef, type Template, variantFor } from "./workflow.ts";
 
 /** Must equal the `resolution` enum in profiles/colab-comfy.yaml (guarded by test/job.test.ts). */
 export const RESOLUTIONS = ["1344x768", "768x1344", "1280x704", "704x1280", "1024x768", "768x1024"] as const;
@@ -20,8 +20,12 @@ export interface Job {
   node?: string;
   template: string;
   prompt: string;
-  /** Film-relative paths, ref .. ref3 in order. */
+  /** Film-relative paths, ref .. ref3 in order (h3-ref2va; empty for h3-fl2va). */
   refs: string[];
+  /** h3-fl2va: film-relative first frame (the keyframe the clip starts from). */
+  image?: string;
+  /** Film-relative WAV fed to MiniMaxH3AddGuide at frame 0 (lip-sync guide; required by h3-fl2va). Absent: image + prompt only. */
+  audio?: string;
   seed: number;
   duration: number;
   resolution: string;
@@ -62,8 +66,12 @@ export function normalizeJob(raw: Raw): Job {
   };
   const template = str("template", true);
   const prompt = str("prompt", true);
-  const refs = [str("ref", true), str("ref2", false), str("ref3", false)];
+  // Which of ref / image is required depends on the template (validateJob).
+  const refs = [str("ref", false), str("ref2", false), str("ref3", false)];
+  if (refs[0] === undefined && refs[1] !== undefined) problems.push(invalid("ref2 given without ref", "ref2"));
+  const image = str("image", false);
   if (refs[1] === undefined && refs[2] !== undefined) problems.push(invalid("ref3 given without ref2", "ref3"));
+  const audio = str("audio", false);
   const seed = raw.seed === undefined ? (problems.push(invalid("seed is required", "seed")), undefined) : num(raw.seed, "seed", problems, { integer: true });
   if (seed !== undefined && (seed < 0 || seed > Number.MAX_SAFE_INTEGER)) problems.push(invalid("seed must be in 0..9007199254740991", "seed"));
   const duration =
@@ -94,6 +102,8 @@ export function normalizeJob(raw: Raw): Job {
     template: template!,
     prompt: prompt!,
     refs: refs.filter((r): r is string => r !== undefined),
+    ...(image !== undefined ? { image } : {}),
+    ...(audio !== undefined ? { audio } : {}),
     seed: seed!,
     duration: duration!,
     resolution: resolution!,
@@ -134,31 +144,128 @@ function checkRef(baseDir: string, ref: string, field: string): Detail | Resolve
   return kind;
 }
 
-/** Content-hash the refs for binding / cache keys. Throws with the same messages validateJob reports. */
-export function resolveRefs(job: Job, baseDir: string): ResolvedRef[] {
+/**
+ * Pixel size of a PNG / JPEG / WebP from its header; undefined when it cannot be read. Only the header is parsed.
+ */
+export function imageSize(bytes: Uint8Array): { width: number; height: number } | undefined {
+  const kind = sniffImage(bytes);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const tag = (at: number) => String.fromCharCode(...bytes.subarray(at, at + 4));
+  if (kind === "png") {
+    if (bytes.length < 24 || tag(12) !== "IHDR") return undefined;
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (kind === "jpg") {
+    for (let at = 2; at + 9 < bytes.length; ) {
+      if (bytes[at] !== 0xff) return undefined;
+      const marker = bytes[at + 1]!;
+      if (marker === 0xff) { at++; continue; }
+      const len = view.getUint16(at + 2);
+      // SOF0..SOF15 except DHT (C4), JPG (C8), DAC (CC)
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { height: view.getUint16(at + 5), width: view.getUint16(at + 7) };
+      }
+      at += 2 + len;
+    }
+    return undefined;
+  }
+  if (kind === "webp" && bytes.length >= 30) {
+    const chunk = tag(12);
+    if (chunk === "VP8X") return { width: 1 + (bytes[24]! | (bytes[25]! << 8) | (bytes[26]! << 16)), height: 1 + (bytes[27]! | (bytes[28]! << 8) | (bytes[29]! << 16)) };
+    if (chunk === "VP8 ") return { width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
+    if (chunk === "VP8L") {
+      const b = view.getUint32(21, true);
+      return { width: (b & 0x3fff) + 1, height: ((b >> 14) & 0x3fff) + 1 };
+    }
+  }
+  return undefined;
+}
+
+/** Aspect-ratio tolerance for an h3-fl2va first frame (MiniMaxH3ImageToVideo stretches it to the canvas). */
+export const FIRST_FRAME_ASPECT_TOLERANCE = 0.01;
+
+/**
+ * Duration of a RIFF/WAVE file from its header (data chunk bytes / fmt byte rate); undefined when the
+ * bytes are not a WAV filmkit can read. Only the header is parsed: no audio is decoded or processed.
+ */
+export function wavDurationSec(bytes: Uint8Array): number | undefined {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const tag = (at: number) => String.fromCharCode(...bytes.subarray(at, at + 4));
+  if (bytes.length < 12 || tag(0) !== "RIFF" || tag(8) !== "WAVE") return undefined;
+  let byteRate: number | undefined;
+  let dataBytes: number | undefined;
+  for (let at = 12; at + 8 <= bytes.length; ) {
+    const id = tag(at);
+    const size = view.getUint32(at + 4, true);
+    if (id === "fmt " && at + 16 <= bytes.length) byteRate = view.getUint32(at + 16, true);
+    if (id === "data") {
+      // 0xFFFFFFFF / overlong: a streamed header; the data runs to the end of the file.
+      dataBytes = Math.min(size, bytes.length - (at + 8));
+      break;
+    }
+    at += 8 + size + (size % 2);
+  }
+  if (!byteRate || dataBytes === undefined) return undefined;
+  return dataBytes / byteRate;
+}
+
+/** Existence + WAV header check for the audio guide; returns a problem or the duration in seconds. */
+function checkAudio(baseDir: string, audio: string): Detail | number {
+  const abs = resolve(baseDir, audio);
+  if (!existsSync(abs) || !statSync(abs).isFile()) return invalid(`audio file not found: ${audio}`, "audio");
+  const sec = wavDurationSec(readFileSync(abs));
+  if (sec === undefined) return invalid(`audio is not a readable RIFF/WAVE file (header): ${audio}`, "audio", "export the voice-over segment as .wav");
+  if (!(sec > 0)) return invalid(`audio has no samples: ${audio}`, "audio");
+  return sec;
+}
+
+/** Content-hash refs, first frame and audio for binding / cache keys. Throws with the same messages validateJob reports. */
+export function resolveInputs(job: Job, baseDir: string): ResolvedInputs {
   const problems: Detail[] = [];
-  const out: ResolvedRef[] = [];
+  const refs: ResolvedRef[] = [];
   job.refs.forEach((path, i) => {
     const field = i === 0 ? "ref" : `ref${i + 1}`;
     const kind = checkRef(baseDir, path, field);
     if (typeof kind !== "string") return void problems.push(kind);
-    out.push({ path, sha256: sha256Hex(readFileSync(resolve(baseDir, path))), ext: kind });
+    refs.push({ path, sha256: sha256Hex(readFileSync(resolve(baseDir, path))), ext: kind });
   });
+  let image: ResolvedRef | undefined;
+  if (job.image !== undefined) {
+    const kind = checkRef(baseDir, job.image, "image");
+    if (typeof kind !== "string") problems.push(kind);
+    else image = { path: job.image, sha256: sha256Hex(readFileSync(resolve(baseDir, job.image))), ext: kind };
+  }
+  let audio: ResolvedAudio | undefined;
+  if (job.audio !== undefined) {
+    const sec = checkAudio(baseDir, job.audio);
+    if (typeof sec !== "number") problems.push(sec);
+    else audio = { path: job.audio, sha256: sha256Hex(readFileSync(resolve(baseDir, job.audio))), ext: "wav", durationSec: sec };
+  }
   if (problems.length) throw new ColabComfyError(EXIT.invalidInput, problems);
-  return out;
+  return { refs, ...(image ? { image } : {}), ...(audio ? { audio } : {}) };
 }
 
 export function jobFrames(job: Job, tpl: Template): number {
-  return framesFor(job.duration, tpl.bindings.fps, tpl.objectInfo.classes.MiniMaxH3ReferenceToVideo.inputs.length);
+  return framesFor(job.duration, tpl.bindings.fps, conditioningSpec(tpl).length);
 }
 
 export function bindInput(job: Job, tpl: Template): BindInput {
   return { prompt: job.prompt, width: job.width, height: job.height, frames: jobFrames(job, tpl), seed: job.seed, sparsity: job.sparsity };
 }
 
-/** Warm-time key used by the estimate: `dense`, `vsa-0.75`, ... */
+/** Workflow variant key (jobs.json, run records): `dense`, `vsa-0.75`, ... */
 export function variantKey(job: Job): string {
   return variantFor(job.sparsity) === "dense" ? "dense" : `vsa-${job.sparsity}`;
+}
+
+/** Warm-time key in estimates.json: the template's `estimateKey` (h3-fl2va: `fl2va-8step`), else the variant key. */
+export function estimateKey(job: Job, tpl: Template): string {
+  return tpl.bindings.estimateKey ?? variantKey(job);
+}
+
+/** The estimate's audio-guide factor applies to the optional splice only; h3-fl2va's timings include its guide. */
+export function usesAudioGuideSplice(job: Job, tpl: Template): boolean {
+  return job.audio !== undefined && tpl.bindings.audioGuide !== undefined;
 }
 
 export interface ValidateContext {
@@ -173,17 +280,72 @@ export function validateJob(job: Job, ctx: ValidateContext): Detail[] {
   const problems: Detail[] = [];
   const { tpl } = ctx;
 
+  if (tpl.bindings.refs) {
+    if (job.refs.length === 0) problems.push(invalid("ref is required", "ref"));
+    if (job.image !== undefined) problems.push(invalid(`template ${tpl.name} takes reference images (ref), not a first frame (image)`, "image", "use template h3-fl2va@1 for a first frame, or pass the picture as ref"));
+  } else {
+    if (job.refs.length) problems.push(invalid(`template ${tpl.name} takes a first frame (image), not reference images (ref)`, "ref", "pass the keyframe as image"));
+    if (job.image === undefined) problems.push(invalid("image is required (the clip's first frame)", "image"));
+  }
   job.refs.forEach((path, i) => {
     const field = i === 0 ? "ref" : `ref${i + 1}`;
     const r = checkRef(ctx.baseDir, path, field);
     if (typeof r !== "string") problems.push(r);
   });
-  if (job.refs.length > tpl.bindings.refs.max) problems.push(invalid(`at most ${tpl.bindings.refs.max} refs`, "ref"));
+  if (tpl.bindings.refs && job.refs.length > tpl.bindings.refs.max) problems.push(invalid(`at most ${tpl.bindings.refs.max} refs`, "ref"));
+  if (tpl.bindings.firstFrame && job.image !== undefined) {
+    const r = checkRef(ctx.baseDir, job.image, "image");
+    if (typeof r !== "string") problems.push(r);
+    else if (job.width && job.height) {
+      // MiniMaxH3ImageToVideo stretches the first frame to the canvas (no crop): a different aspect distorts the face.
+      const size = imageSize(readFileSync(resolve(ctx.baseDir, job.image)));
+      if (!size) problems.push(invalid(`image size unreadable from the header: ${job.image}`, "image"));
+      else {
+        const want = job.width / job.height;
+        const got = size.width / size.height;
+        if (Math.abs(got / want - 1) > FIRST_FRAME_ASPECT_TOLERANCE) {
+          problems.push(
+            invalid(
+              `image is ${size.width}x${size.height} but the clip is ${job.resolution}; MiniMaxH3ImageToVideo would stretch it`,
+              "image",
+              `crop the keyframe to the clip's aspect ratio (${job.resolution})`,
+            ),
+          );
+        }
+      }
+    }
+  }
 
   for (const m of job.prompt.matchAll(/<Picture\s+(\d+)>/g)) {
     const k = Number(m[1]);
     if (k < 1 || k > job.refs.length) {
       problems.push(invalid(`prompt mentions <Picture ${k}> but only ${job.refs.length} ref(s) are given`, "prompt"));
+    }
+  }
+
+  if (tpl.bindings.audio && job.audio === undefined) {
+    problems.push(invalid(`audio is required by ${tpl.name} (the driving audio for lip sync)`, "audio", "the scene's VO segment as a WAV, starting at the first frame"));
+  }
+  if (job.sparsity !== 0 && !tpl.variants.vsa) {
+    problems.push(invalid(`template ${tpl.name} has no VSA variant; sparsity must be 0`, "sparsity"));
+  }
+  if (job.audio !== undefined && !tpl.bindings.audioGuide && !tpl.bindings.audio) {
+    problems.push(invalid(`template ${tpl.name} has no audio guide`, "audio", "use template h3-ref2va@2 (same models, plus the MiniMaxH3AddGuide lip-sync guide)"));
+  } else if (job.audio !== undefined) {
+    const sec = checkAudio(ctx.baseDir, job.audio);
+    if (typeof sec !== "number") problems.push(sec);
+    else {
+      // MiniMaxH3AddGuide crops audio that runs past the clip: the end of the line would silently lose its guide.
+      const clipSec = jobFrames(job, tpl) / tpl.bindings.fps;
+      if (sec > clipSec + 1e-3) {
+        problems.push(
+          invalid(
+            `audio is ${sec.toFixed(3)}s but the clip is ${jobFrames(job, tpl)} frames (${clipSec.toFixed(3)}s); the guide would be cropped`,
+            "audio",
+            "raise duration to cover the audio, or cut the audio to the clip",
+          ),
+        );
+      }
     }
   }
 
@@ -194,7 +356,7 @@ export function validateJob(job: Job, ctx: ValidateContext): Detail[] {
     problems.push(invalid("seed + candidates - 1 exceeds 9007199254740991", "seed"));
   }
 
-  const { length, width, height } = tpl.objectInfo.classes.MiniMaxH3ReferenceToVideo.inputs;
+  const { length, width, height } = conditioningSpec(tpl);
   const frames = jobFrames(job, tpl);
   if (frames > length.max) problems.push(invalid(`${frames} frames exceed the node maximum ${length.max}`, "duration"));
   for (const [name, v, spec] of [["width", job.width, width], ["height", job.height, height]] as const) {

@@ -46,7 +46,8 @@ usage:
                                                           batch of one under the same budget gate. candidates > 1 without --pick: exit 2.
 
 job flags: --node= --template= --prompt= --ref= [--ref2=] [--ref3=] --seed= --duration= --resolution=
-           [--sparsity=] [--candidates=] [--pick=]
+           [--sparsity=] [--candidates=] [--pick=] [--audio=]   (--audio: WAV lip-sync guide -> MiniMaxH3AddGuide)
+           h3-fl2va@1: --image= (first frame) and --audio= (driving WAV) instead of --ref; no --sparsity
 
 common: --json  machine-readable output; errors as {"errors":[{code,message,field?,hint?}]} on stderr
 
@@ -67,6 +68,8 @@ const OPTIONS = {
   ref: { type: "string" },
   ref2: { type: "string" },
   ref3: { type: "string" },
+  image: { type: "string" },
+  audio: { type: "string" },
   seed: { type: "string" },
   duration: { type: "string" },
   resolution: { type: "string" },
@@ -181,10 +184,10 @@ function validateCommand(v: Values, cwd: string): Out {
   const problems = [...missing, ...validateJob(job, { baseDir: cwd, tpl, out: v.out, record: v.record })];
   if (problems.length) throw new ColabComfyError(EXIT.invalidInput, problems);
   const frames = jobFrames(job, tpl);
-  const summary = { ok: true, node: job.node ?? null, template: job.template, variant: variantKey(job), frames, width: job.width, height: job.height, refs: job.refs.length, candidates: job.candidates };
+  const summary = { ok: true, node: job.node ?? null, template: job.template, variant: variantKey(job), frames, width: job.width, height: job.height, refs: job.refs.length, image: job.image ?? null, audio: job.audio ?? null, candidates: job.candidates };
   return {
     json: summary,
-    text: `ok: ${job.node ?? "job"} ${summary.variant} ${job.width}x${job.height} ${frames}f, ${job.refs.length} ref(s), ${job.candidates} candidate(s)`,
+    text: `ok: ${job.node ?? "job"} ${summary.variant} ${job.width}x${job.height} ${frames}f, ${job.image !== undefined ? "first frame" : `${job.refs.length} ref(s)`}${job.audio ? ", audio guide" : ""}, ${job.candidates} candidate(s)`,
   };
 }
 

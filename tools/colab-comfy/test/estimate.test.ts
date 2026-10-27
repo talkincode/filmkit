@@ -74,6 +74,19 @@ describe("estimateCU", () => {
     expect(chooseGpu(dense, cfg, 99).gpu).toBe("A100");
   });
 
+  test("audio guide: warm time x audioGuide.warmFactor (1.03, measured on A100); init and fixed costs unchanged", () => {
+    expect(cfg.audioGuide).toMatchObject({ warmFactor: 1.03, calibrated: true });
+    const plain = estimateCU([job("p", "dense", 107, 768, 1024)], cfg, { gpu: "A100" });
+    const guided = estimateCU([{ ...job("p", "dense", 107, 768, 1024), audioGuide: true }], cfg, { gpu: "A100" });
+    const warm = 61 * (768 * 1024 * 107) / (1344 * 768 * 124);
+    expect(plain.jobs[0]!.audioGuideFactor).toBeUndefined();
+    expect(guided.jobs[0]!.audioGuideFactor).toBe(1.03);
+    expect(guided.jobs[0]!.genSec).toBeCloseTo(10 + warm * 1.03, 1);
+    expect(guided.jobs[0]!.genSec - plain.jobs[0]!.genSec).toBeCloseTo(warm * 0.03, 1);
+    expect(guided.fixedSec).toEqual(plain.fixedSec);
+    expect(guided.cu).toBeGreaterThan(plain.cu);
+  });
+
   test("zero jobs cost nothing (no session)", () => {
     const e = estimateCU([], cfg, { gpu: "L4" });
     expect([e.cu, e.totalSec]).toEqual([0, 0]);

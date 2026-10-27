@@ -16,7 +16,7 @@ import { sha256Hex } from "../tools/colab-comfy/src/canonical.ts";
 import { Colab } from "../tools/colab-comfy/src/colab.ts";
 import { readActive, readLedger, stateDir } from "../tools/colab-comfy/src/ledger.ts";
 import { fakeColabEnv, readCalls } from "../tools/colab-comfy/test/fake-colab.ts";
-import { startMockComfy, type MockComfy, type MockMode } from "../tools/colab-comfy/test/mock-comfy.ts";
+import { DEFAULT_CLASSES, startMockComfy, type MockComfy, type MockMode } from "../tools/colab-comfy/test/mock-comfy.ts";
 import { media, project, type Project } from "./helpers.ts";
 
 const REPO = resolve(import.meta.dir, "..");
@@ -56,6 +56,9 @@ interface Scene {
   sparsity: number;
   prompt: string;
   extra?: string;
+  template?: string;
+  /** task h3-fl2va: image ./kf/<id>.png + audio ./vo/<id>.wav instead of ref / sparsity. */
+  fl2va?: boolean;
 }
 
 const defaultScenes = (): Scene[] => [
@@ -72,15 +75,14 @@ function filmYaml(scenes: Scene[]): string {
     durationPolicy: exact
     impl:
       profile: colab-comfy
-      task: h3-ref2va
+      task: ${s.fl2va ? "h3-fl2va" : "h3-ref2va"}
       params:
-        template: h3-ref2va@1
+        template: ${s.template ?? (s.fl2va ? "h3-fl2va@1" : "h3-ref2va@1")}
         prompt: ${JSON.stringify(s.prompt)}
-        ref: ./refs/${s.ref}.png
+${s.fl2va ? `        image: ./kf/${s.id}.png\n        audio: ./vo/${s.id}.wav` : `        ref: ./refs/${s.ref}.png`}
         seed: ${s.seed}
         duration: ${s.duration}
-        resolution: 704x1280
-        sparsity: ${s.sparsity}${s.extra ? `\n${s.extra}` : ""}
+        resolution: 704x1280${s.fl2va ? "" : `\n        sparsity: ${s.sparsity}`}${s.extra ? `\n${s.extra}` : ""}
     produces: { video: ./build/h3/${s.id}.mp4, file: ./build/h3/${s.id}.colab.json }`,
     )
     .join("\n");
@@ -167,13 +169,13 @@ async function sh(argv: string[], cwd: string, env: Record<string, string>): Pro
 }
 
 /** `shared`: the caller owns the cleanup (a describe that keeps one project across tests). */
-function world(o: { scenes?: Scene[]; mode?: MockMode | MockMode[]; shared?: boolean } = {}): World {
+function world(o: { scenes?: Scene[]; mode?: MockMode | MockMode[]; shared?: boolean; classes?: string[] } = {}): World {
   const p = project();
   const state = join(p.dir, "fake-state");
   const scenes = o.scenes ?? defaultScenes();
   p.write("profiles/colab-comfy.yaml", PROFILE);
   scenes.forEach((s, i) => media.png(p.path(`refs/${s.ref}.png`), 64, 36, ["0x336699", "0x993366", "0x669933", "0xcc9933"][i % 4]));
-  const mock = startMockComfy({ outputDir: join(p.dir, "comfy-out"), mode: o.mode, sampleMp4: sampleClip });
+  const mock = startMockComfy({ outputDir: join(p.dir, "comfy-out"), mode: o.mode, sampleMp4: sampleClip, ...(o.classes ? { classes: o.classes } : {}) });
   const env = fakeColabEnv(
     state,
     {
@@ -386,6 +388,83 @@ d("colab-comfy through real filmkit: one project, spend in two steps", () => {
     expect(sha(w.p.path("build/h3/s1a.colab.json"))).toBe(afterFull!.record.s1a!);
     expect(sha(w.p.path("build/h3/s4a.colab.json"))).toBe(afterFull!.record.s4a!);
     expect(sha(w.p.path("build/h3/s3a.colab.json"))).not.toBe(afterFull!.record.s3a!);
+  }, T);
+});
+
+// ------------------------------------------------------------------------------------------------------------
+d("audio guide (lip sync)", () => {
+  test("E10 params.audio: the WAV reaches ComfyUI as LoadAudio -> MiniMaxH3AddGuide; a re-recorded VO makes the node stale and re-renders it", async () => {
+    const scene = { ...defaultScenes()[0]!, template: "h3-ref2va@2", extra: "        audio: ./vo/s1a.wav" };
+    const w = world({ scenes: [scene], classes: [...DEFAULT_CLASSES, "LoadAudio", "MiniMaxH3AddGuide"] });
+    media.wav(w.p.path("vo/s1a.wav"), 1.5);
+
+    const v = await w.fk("validate");
+    expect(v.code, v.stderr).toBe(0);
+    const r = await w.cc("batch", "--json");
+    expect(r.code, r.stderr).toBe(0);
+    expect(w.mock.prompts).toHaveLength(1);
+    const wav = `${sha(w.p.path("vo/s1a.wav"))}.wav`;
+    const sent = w.mock.prompts[0]!;
+    expect(sent["60"]).toEqual({ class_type: "LoadAudio", inputs: { audio: wav } });
+    expect(sent["61"].class_type).toBe("MiniMaxH3AddGuide");
+    expect(sent["61"].inputs).toMatchObject({ positive: ["6", 0], latent: ["6", 1], frame_idx: 0, audio_vae: ["5", 0], audio: ["60", 0] });
+    expect(sent["11"].inputs.conditioning).toEqual(["61", 0]);
+    expect(readFileSync(w.p.path(`comfy-in/${wav}`))).toEqual(readFileSync(w.p.path("vo/s1a.wav")));
+    expect(await w.sessions()).toEqual([]);
+    const rec = w.record("s1a");
+    expect(validateRecord(rec), JSON.stringify(validateRecord.errors)).toBe(true);
+    expect(rec.params.audio).toMatchObject({ path: "./vo/s1a.wav", sha256: sha(w.p.path("vo/s1a.wav")) });
+    expect((await w.fk("status", "--json")).json.nodes.map((n: any) => n.status)).toEqual(["ready"]);
+
+    // same params, new VO bytes: filmkit hashes `./` param contents -> stale; the cache key follows the bytes
+    media.wav(w.p.path("vo/s1a.wav"), 1.5, 660);
+    const plan = await w.fk("plan", "--json");
+    expect(plan.json.nodes.map((n: any) => [n.id, n.status])).toEqual([["s1a", "stale"]]);
+    const again = await w.cc("batch", "--json");
+    expect(again.code, again.stderr).toBe(0);
+    expect(w.mock.prompts).toHaveLength(2);
+    expect(w.mock.prompts[1]!["60"].inputs.audio).toBe(`${sha(w.p.path("vo/s1a.wav"))}.wav`);
+    expect(w.mock.prompts[1]!["60"].inputs.audio).not.toBe(wav);
+    expect(await w.sessions()).toEqual([]);
+  }, T);
+});
+
+// ------------------------------------------------------------------------------------------------------------
+d("h3-fl2va", () => {
+  test("E11 task h3-fl2va: first frame + driving audio reach ComfyUI in the EP01 workflow; a new keyframe makes the node stale", async () => {
+    const scene: Scene = { ...defaultScenes()[0]!, prompt: "首帧里同一位女性对镜头说话，口型与配音同步。", fl2va: true };
+    const w = world({ scenes: [scene], classes: [...DEFAULT_CLASSES, "MiniMaxH3ImageToVideo", "LoadAudio", "MiniMaxH3AddGuide"] });
+    media.png(w.p.path("kf/s1a.png"), 44, 80, "0x336699"); // 0.55 like 704x1280 (EP01/EP03 keyframes were exactly 704x1280)
+    media.wav(w.p.path("vo/s1a.wav"), 1.5);
+
+    const v = await w.fk("validate");
+    expect(v.code, v.stderr).toBe(0);
+    const est = await w.cc("batch", "--estimate", "--gpu", "L4", "--json");
+    expect(est.json.estimate.jobs[0]).toMatchObject({ variant: "fl2va-8step", calibrated: true });
+    const r = await w.cc("batch", "--json");
+    expect(r.code, r.stderr).toBe(0);
+    expect(w.mock.prompts).toHaveLength(1);
+    const png = `${sha(w.p.path("kf/s1a.png"))}.png`;
+    const wav = `${sha(w.p.path("vo/s1a.wav"))}.wav`;
+    const sent = w.mock.prompts[0]!;
+    expect(sent["6"].class_type).toBe("MiniMaxH3ImageToVideo");
+    expect(sent["6"].inputs).toMatchObject({ first_frame: ["20", 0], width: 704, height: 1280, length: 56 });
+    expect(sent["20"]).toEqual({ class_type: "LoadImage", inputs: { image: png } });
+    expect(sent["21"]).toEqual({ class_type: "LoadAudio", inputs: { audio: wav } });
+    expect(sent["10"].inputs.conditioning).toEqual(["16", 0]);
+    expect(sent["8"].inputs).toMatchObject({ steps: 8, scheduler: "simple" });
+    expect(readFileSync(w.p.path(`comfy-in/${png}`))).toEqual(readFileSync(w.p.path("kf/s1a.png")));
+    expect(readFileSync(w.p.path(`comfy-in/${wav}`))).toEqual(readFileSync(w.p.path("vo/s1a.wav")));
+    expect(await w.sessions()).toEqual([]);
+    const rec = w.record("s1a");
+    expect(validateRecord(rec), JSON.stringify(validateRecord.errors)).toBe(true);
+    expect(rec.template.name).toBe("h3-fl2va@1");
+    expect(rec.params.image).toEqual({ path: "./kf/s1a.png", sha256: sha(w.p.path("kf/s1a.png")) });
+    expect((await w.fk("status", "--json")).json.nodes.map((n: any) => n.status)).toEqual(["ready"]);
+
+    media.png(w.p.path("kf/s1a.png"), 44, 80, "0x993366");
+    const plan = await w.fk("plan", "--json");
+    expect(plan.json.nodes.map((n: any) => [n.id, n.status])).toEqual([["s1a", "stale"]]);
   }, T);
 });
 

@@ -11,6 +11,10 @@
 //               A100 VSA values are derived from the L4 VSA/dense ratios (only dense was measured on A100).
 //   teardown    last download + log collection + stop (measured ~15 s; 30 s kept)
 //   rate        nominal `colab usage` rate: L4 1.71, A100 5.30 CU/h. The safety margin (1.2) stays on top.
+//   audioGuide  a h3-ref2va@2 job with the optional audio guide multiplies its warm time by audioGuide.warmFactor
+//               (1.03; A100 measured +2.5% on EP004, see estimates.json `basis`).
+//   fl2va-8step h3-fl2va@1 (fl2va + turbo 8-step LoRA, guide built in) has its own warm key. L4 is fitted to the
+//               EP03 / 李律 EP01 runs (704x1280, 90-158 f); A100 is derived (`uncalibrated`), see estimates.json.
 // A GPU without its own entry (T4, G4, H100, ...) uses the L4 timings with an explicit --rate (and needs --yes).
 
 import { readFileSync } from "node:fs";
@@ -33,7 +37,13 @@ export interface Estimates {
   margin: number;
   /** GPUs `--gpu auto` may choose from (only L4 and A100: never H100, never high-mem). */
   autoGpus: string[];
+  /** Extra warm time for a job with an audio guide (MiniMaxH3AddGuide); `calibrated: false` until measured. */
+  audioGuide?: { warmFactor: number; calibrated: boolean; basis?: string };
   gpus: Record<string, GpuEstimates>;
+  /** Warm keys whose timings on a GPU are derived rather than measured: gpu -> key -> basis. */
+  uncalibrated?: Record<string, Record<string, string>>;
+  /** Free-form provenance per warm key (not used in the arithmetic). */
+  basis?: Record<string, string>;
 }
 
 /** The GPU whose timings stand in for an uncalibrated GPU. */
@@ -58,10 +68,18 @@ export interface EstimateJob {
   width: number;
   height: number;
   frames: number;
+  /** The job feeds an audio guide (lip sync) into MiniMaxH3AddGuide. */
+  audioGuide?: boolean;
 }
 
 export interface JobEstimate extends EstimateJob {
   scale: number;
+  /** Warm-time multiplier applied for the audio guide (estimates.json audioGuide.warmFactor); absent without audio. */
+  audioGuideFactor?: number;
+  audioGuideCalibrated?: boolean;
+  /** false when this warm key's timing on the timing GPU is derived, not measured (estimates.json `uncalibrated`). */
+  calibrated: boolean;
+  basis?: string;
   /** perJobInit + warm·scale */
   genSec: number;
   initSec: number;
@@ -100,11 +118,16 @@ export function estimateCU(jobs: EstimateJob[], cfg: Estimates, opts: { gpu: str
       throw new ColabComfyError(EXIT.invalidInput, [invalid(`no warm-time calibration for variant "${j.variant}"`, "sparsity")]);
     }
     const scale = (j.width * j.height * j.frames) / ref;
+    const guide = j.audioGuide ? (cfg.audioGuide?.warmFactor ?? 1) : undefined;
+    const unc = cfg.uncalibrated?.[timingGpu]?.[j.variant];
     return {
       ...j,
       scale: round(scale, 4),
+      ...(guide !== undefined ? { audioGuideFactor: guide, audioGuideCalibrated: cfg.audioGuide?.calibrated ?? false } : {}),
+      calibrated: unc === undefined,
+      ...(unc !== undefined ? { basis: unc } : {}),
       initSec: t.perJobInitSec,
-      genSec: round(t.perJobInitSec + warm * scale ** cfg.scaleExponent, 1),
+      genSec: round(t.perJobInitSec + warm * scale ** cfg.scaleExponent * (guide ?? 1), 1),
       downloadSec: cfg.downloadSecPerJob,
     };
   });
