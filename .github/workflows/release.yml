@@ -193,6 +193,7 @@ jobs:
             def install
               libexec.install Dir["*"]
               bin.install_symlink libexec/"bin/filmkit.ts" => "filmkit"
+              bin.install_symlink libexec/"tools/vflow/bin/vflow-pull.ts" => "vflow-pull"
             end
 
             def caveats
@@ -210,6 +211,7 @@ jobs:
 
             test do
               assert_match version.to_s, shell_output("#{bin}/filmkit --version")
+              assert_match "--mode production|assemble", shell_output("#{bin}/vflow-pull help")
               assert_match "everything needed for build is present", shell_output("#{bin}/filmkit doctor")
             end
           end

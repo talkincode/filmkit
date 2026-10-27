@@ -5,6 +5,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { COMMANDS, HELP } from "../src/cli.ts";
+import { COMMANDS as VFLOW_COMMANDS, HELP as VFLOW_HELP } from "../tools/vflow/src/cli.ts";
 
 const skillDir = new URL("../skills/filmkit/", import.meta.url);
 const skill = readFileSync(new URL("SKILL.md", skillDir), "utf8");
@@ -39,15 +40,21 @@ let flagCount = 0;
 for (const { file, text } of docs) {
   const code = codeOf(text);
   for (const c of commandsIn(code)) if (!cliCommands.has(c)) problems.push(`${file} mentions "filmkit ${c}" but the CLI has no such command`);
-  // Only flags on lines that talk about filmkit: the skill also quotes other
-  // tools' flags (hyperframes --fps, imagine --seed), and those are not ours.
+  // Match the executable (including bin/filmkit.ts), not a filename such as
+  // `vflow-pull ... --out filmkit.yaml`: those flags belong to the helper.
   const filmkitLines = code
     .split("\n")
-    .filter((line) => /\bfilmkit\b/.test(line))
+    .filter((line) => /\bfilmkit(?:\.ts)?(?=\s|`|$)/.test(line))
     .join("\n");
   const flags = new Set([...filmkitLines.matchAll(/(--[a-z][a-z-]*)/g)].map((m) => m[1]!));
   flagCount += flags.size;
   for (const f of flags) if (!helpFlags.has(f)) problems.push(`${file} mentions flag "${f}" not present in --help`);
+  const bridgeLines = code.split("\n").filter((line) => /\bvflow-pull\s/.test(line)).join("\n");
+  const bridgeFlags = new Set([...VFLOW_HELP.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]));
+  for (const match of bridgeLines.matchAll(/\bvflow-pull\s+([a-z][a-z-]*)/g))
+    if (!(VFLOW_COMMANDS as readonly string[]).includes(match[1]!)) problems.push(`${file} mentions unknown vflow-pull command ${match[1]}`);
+  for (const match of bridgeLines.matchAll(/--[a-z][a-z-]*/g))
+    if (!bridgeFlags.has(match[0])) problems.push(`${file} mentions vflow-pull flag ${match[0]} not present in its --help`);
 }
 const documented = commandsIn(codeOf(skill));
 for (const c of cliCommands) if (c !== "help" && !documented.has(c)) problems.push(`CLI command "${c}" is not documented in SKILL.md`);

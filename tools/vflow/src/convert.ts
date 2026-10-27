@@ -12,6 +12,8 @@
 // guessed — choosing a tool and writing its params is the agent's job.
 
 import YAML from "yaml";
+import { convertAssembly } from "./assemble.ts";
+export type ImportMode = "production" | "assemble";
 import { type Bundle, type Shot, type Subject, subjectKey } from "./bundle.ts";
 import { fail, invalid } from "./errors.ts";
 
@@ -80,7 +82,8 @@ function uniqueId(base: string, used: Set<string>): string {
 
 const round6 = (n: number): number => Math.round(n * 1e6) / 1e6;
 
-export function convertBundle(bundle: Bundle, source: string): Conversion {
+export function convertBundle(bundle: Bundle, source: string, mode: ImportMode = "production"): Conversion {
+  if (mode === "assemble") return convertAssembly(bundle);
   const { composition: comp } = bundle;
   const warnings: string[] = [...bundle.motionWarnings];
   const used = new Set<string>(); // scene ids and asset names share one namespace in filmkit

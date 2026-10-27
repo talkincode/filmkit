@@ -104,7 +104,7 @@ export function readMotionReferences(deps: Obj, comp: Obj, bundleRevision: unkno
       return { id: f.id as string, asset: f.asset as string, momentFrame: f.momentFrame as number, purpose: f.purpose as string, ...(typeof f.note === "string" ? { note: f.note } : {}) };
     });
     const roleAssets = [asset(doc.video, "video"), asset(doc.overview, "overview"), asset(doc.source, "source"), ...frames.map((f) => f.asset)];
-    if (!frames.length || new Set(roleAssets).size !== roleAssets.length || new Set(frames.map((f) => f.id)).size !== frames.length || new Set(frames.map((f) => f.momentFrame)).size !== frames.length) bad("keyframes", "motion roles, keyframe ids and moments must be distinct and non-empty");
+    if (!frames.length || new Set(roleAssets).size !== roleAssets.length || new Set(frames.map((f) => f.id)).size !== frames.length || new Set(frames.map((f) => `${f.momentFrame}:${f.purpose}`)).size !== frames.length) bad("keyframes", "motion roles, keyframe ids and moment/purpose pairs must be distinct and non-empty");
     motions.push({
       id: doc.id as string, revision: version.revision as number, shotId: doc.shotId as string,
       compositionRevision: doc.compositionRevision as number, fps: doc.fps as number, durationFrames: doc.durationFrames as number,

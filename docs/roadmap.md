@@ -119,6 +119,8 @@ timeline:
 
 - **动态白模制作（`tools/blockout/`）**：独立的外部制作工具，显式声明几何、整数帧动作和镜头；Three.js/HyperFrames 与 Blender 可选后端负责渲染，ffmpeg/ffprobe 负责编码与规格核验。交付参考视频、布局静帧、关键帧、源工程归档和产物哈希清单；固定上游绑定、绝对时间 seek、失败暂存及原子落位。仅用于布局/运镜/动作节奏，不能代替身份图或自动成为最终镜头。核心 `src/` 和 Film Schema 不变，规则见 [动态白模 L0](blockout.md)。
 
+**vflow 交接补充（0.8.0）**：`pull/convert/fetch --mode assemble` 在现有默认 `production` 之外显式导入固定时长、选定音视频及全局音轨。源音频偏移生成普通 builtin ffmpeg 节点，由用户按 plan 显式执行，不把时间线起点当源裁切。无选定视频/无时长/非法音轨拒绝，无自动选用、无模型调用、无远端写入、无增量覆盖。动态参考按 `momentFrame + purpose` 唯一，允许同帧不同用途。详见 `tools/vflow/README.md`。没有 Film Schema 或存储迁移；回退旧读取器不应覆盖已制作的新工程。此变更是一级能力 28 的扩展，不另建同步系统。
+
 尚未实现（协议已保留字段，`validate` 明确拒绝）：`tracks[].stems`、`profiles[].source`、`filmkit mcp`。
 
 ## 功能清单（目标能力）
@@ -238,6 +240,7 @@ timeline:
 | 27. 内置凭据保险库（filmkit vault） | 高 | ✅ set（stdin/TTY）、import（.env）、list（仅键名与时间戳）、delete、子进程自动注入（HTTP + CLI）、process.env 优先覆盖 | ✅ argv 传 secret 拒绝（退出 2，防 ps 泄漏）/ 损坏 vault 拒绝解密（退出 1 绝不静默覆盖）/ 非法键名（退出 2）/ 删除不存在键（退出 2）/ 缺失 stdin（退出 2） | 不适用 | ✅ 原子写入（.tmp + rename）；写入失败原有 vault 完好；损坏 vault 报错不覆盖 | `tests/vault.test.ts` 全部 |
 | 28. vflow 对接（vflow-pull：pull / convert / fetch / package-motion，分镜、身份与动态参考） | 高 | ✅ 真实 vflow 导出夹具（v1 / v2）转换为合法 film（`plan` 列出 place files）；stub 服务端到端：导出 → sha256 校验取字节 → 生成 film → `filmkit validate` → `build` 出片；MCP 路线 `convert` → `fetch`；真实 vflow 服务（其自带本地验收服务）端到端 `scripts/e2e-vflow.sh`：100 镜头 v1 项目、v2 reference-authoring 项目、落地字节与 vflow 所供 sha256 一致、出片 | ✅ 未知 apiVersion / 缺资产清单 / 主体或变体无法解析 / 字段形状错（均带 field 路径，退出 2）；无凭据或被拒（Access 302/401/403，退出 3，提示变量名）；字节与清单不符、下载中断、5xx、服务不可达（退出 4）；明文 http 非 localhost 拒绝；单边凭据拒绝；已存在 film 与用户已放置片段拒绝覆盖（退出 1，零请求） | 不适用（vflow 侧的项目成员授权由 vflow 自己强制；本工具只携带 service token） | ✅ 失败后项目目录逐项与失败前一致（无 film、无记录、无资产、无暂存/空目录；用户文件不动）；凭据值（service token 与 Access 令牌）不出现在任何输出 | `tools/vflow/test/convert.test.ts` 21 例；`tools/vflow/test/pull.test.ts` 24 例；`tools/vflow/test/motion-reference.test.ts`（参考用途隔离、固定基准/意图/主体/场景漂移、媒体及文件写失败回滚）、`motion-package.test.ts`（真实解码与绑定/哈希核对、显式关键帧用途、不批准、不覆盖）；`scripts/e2e-vflow.sh`、`scripts/e2e-motion-reference.ts`（真实 vflow MCP/REST；可接两引擎真实渲染产物） |
 
+| 28a. vflow 按设计合成（能力 28 扩展） | 高 | ✅ 固定修订→选定视频/音频→全局源裁切→两镜头合成；默认 production 行为不变 | ✅ 无选定视频/时长、音轨越界、错误类型/偏移、损坏下载、ffmpeg 失败 | ✅ 真实 vflow reader 拉取、禁写、撤权后拒绝；令牌仅请求头 | ✅ 失败不损坏 film/lock/现有媒体；重试不重下相同媒体、不触发模型 | `tools/vflow/test/assemble.test.ts`；`scripts/e2e-vflow-handoff.ts`（真实上游 strict 项目与同帧不同用途白模契约）；`tools/vflow/test/motion-reference.test.ts` |
 | 29. 动态白模制作（独立 blockout / Blender Profile / Three.js-HyperFrames） | 高 | ✅ 两个真实引擎：声明 → 原生校验 → 渲染 → 视频/overview/关键帧/源归档/manifest；ffprobe 解码帧数与尺寸/fps、乱序 seek 像素同一、Blender 世界状态与 evaluator 误差核验；可选 Blender Profile 委托 validate → run → lock；真实跨项目全链 `scripts/e2e-blockout-vflow.sh` | ✅ 未知字段/非法绑定/接触窗口/坏相机/缺工具；拒绝覆盖；渲染/落位故障 | 不适用（外部本地工具，vflow 权限由其生命周期 E2E 验证） | ✅ staging、整包回滚、现有文件与关键帧目录不损坏，失败不写 lock；被跳过的 seek 不宣称已核验 | `tests/blockout.test.ts`（真实 Blender/Three 可用时执行，缺失明确报告）、`tools/blockout/test/*.test.ts`（密集时间/姿态计算、几何诊断、归档与落位恢复）；`scripts/e2e-blockout-vflow.sh`（两引擎实际渲染与完整 vflow 夹具生命周期，非线上审批） |
 
 29 个一级功能都有 Happy Path E2E，高风险功能都有失败路径，写状态的操作都有失败恢复用例。下一步要做的是扩大证据面，而不是补空行——例如 `import` 结果对 golden 快照比对、真实 HyperFrames/Seedance Profile 的端到端、`stems`/`mcp` 落地时各自新增矩阵行。

@@ -37,6 +37,8 @@ export interface Shot {
   referenceVideos: AssetRef[];
   subjects: { subjectId: string; subjectRevision: number; variant?: string }[];
   selectedVideo: string | null;
+  /** Validated only by the opt-in assembly consumer. */
+  selectedAudio?: unknown;
   /** Counts of things this reader does not import (reported, never silently dropped). */
   skipped: { dependsOn: number; candidateVideos: number; candidateAudios: number; selectedAudio: number };
 }
@@ -80,6 +82,7 @@ export interface Bundle {
     sequence: string[];
     shots: Record<string, Shot>;
     audioTracks: number;
+    audioTrackDefinitions?: unknown;
     /** v2 only: pinned authoring materials (not imported). */
     materials: number;
   };
@@ -236,6 +239,7 @@ export function parseBundle(input: string | unknown, source = "bundle"): Bundle 
         referenceVideos: refList(refs.videos, `${f}.references.videos`),
         subjects: bindings,
         selectedVideo: isStr(sel.video) ? sel.video : null,
+        selectedAudio: sel.audio,
         skipped: {
           dependsOn: count(s.dependsOn),
           candidateVideos: count(cands.videos),
@@ -272,6 +276,7 @@ export function parseBundle(input: string | unknown, source = "bundle"): Bundle 
       sequence: comp.sequence as string[],
       shots,
       audioTracks: Array.isArray(comp.audioTracks) ? comp.audioTracks.length : 0,
+      audioTrackDefinitions: comp.audioTracks,
       materials,
     },
     subjects,

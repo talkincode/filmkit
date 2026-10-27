@@ -36,7 +36,12 @@ pinned character/prop reference images (approved entries of the resolved variant
 Reference videos remain input assets, never final clips; legacy references without approval are marked unverified. Everything else is listed as ignored.
 The film is a new file: existing ones are refused unless --force. impl/params are never guessed.
 
-options: --base URL   the vflow origin (or VFLOW_BASE_URL); https only, plain http only for localhost
+options: --mode production|assemble  pull/convert/fetch only (default: production).
+         production keeps the existing reference-oriented import and min durations.
+         assemble requires selected videos and exact durations; imports selected audio (replaces clip sound)
+         and global audio tracks, with explicit local ffmpeg source-crop nodes. No tools run during pull.
+         Use the SAME mode for convert and fetch. Neither mode is incremental sync.
+         --base URL   the vflow origin (or VFLOW_BASE_URL); https only, plain http only for localhost
          --json       machine-readable output; errors as {"errors":[{code,message,field?,hint?}]} on stderr
 
 credentials (vflow sits behind Cloudflare Access), first that applies:
@@ -48,6 +53,7 @@ exit codes: 0 ok, 1 io, 2 invalid input, 3 missing dependency (credentials), 4 t
 
 const OPTIONS = {
   binding: { type: "string" },
+  mode: { type: "string" },
   project: { type: "string" },
   composition: { type: "string" },
   revision: { type: "string" },
@@ -96,6 +102,9 @@ export async function main(argv: string[]): Promise<CliResult> {
     const [command, ...rest] = positionals;
     if (values.help || !command || command === "help") return { exitCode: 0, stdout: `${HELP}\n`, stderr: "" };
 
+    if (values.mode !== undefined && (!["production", "assemble"].includes(values.mode) || !["pull", "convert", "fetch"].includes(command)))
+      fail(invalid("--mode must be production or assemble, for pull/convert/fetch only", { field: "--mode" }));
+    const mode = (values.mode ?? "production") as "production" | "assemble";
     let result: Report;
     switch (command) {
       case "package-motion": {
@@ -107,19 +116,19 @@ export async function main(argv: string[]): Promise<CliResult> {
       }
       case "convert": {
         if (!rest[0]) fail(invalid("usage: vflow-pull convert <bundle.json|yaml> [--out filmkit.yaml]"));
-        result = convertFile({ bundlePath: rest[0], out: values.out ?? "./filmkit.yaml", force: values.force });
+        result = convertFile({ bundlePath: rest[0], out: values.out ?? "./filmkit.yaml", force: values.force, mode });
         break;
       }
       case "fetch": {
         if (!rest[0]) fail(invalid("usage: vflow-pull fetch <bundle.json|yaml> [--base URL] [--dir .]"));
-        result = await fetchFromFile({ bundlePath: rest[0], client: clientFor(values), dir: values.dir ?? ".", force: values.force });
+        result = await fetchFromFile({ bundlePath: rest[0], client: clientFor(values), dir: values.dir ?? ".", force: values.force, mode });
         break;
       }
       case "pull": {
         if (!values.project || !values.composition) fail(invalid("usage: vflow-pull pull --project P --composition C [--revision N] [--base URL]"));
         const revision = values.revision === undefined ? undefined : Number(values.revision);
         if (revision !== undefined && (!Number.isInteger(revision) || revision < 1)) fail(invalid("--revision must be a positive integer", { field: "--revision" }));
-        result = await pull({ client: clientFor(values), project: values.project, composition: values.composition, revision, out: values.out ?? "./filmkit.yaml", force: values.force });
+        result = await pull({ client: clientFor(values), project: values.project, composition: values.composition, revision, out: values.out ?? "./filmkit.yaml", force: values.force, mode });
         break;
       }
       default:

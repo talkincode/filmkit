@@ -11,7 +11,33 @@ nothing under `src/` knows about vflow, and filmkit itself still does not parse 
 helper reuses two small pieces of core on purpose — the vault's credential lookup and the film loader (to prove
 every generated film is legal) — and changes neither.
 
-## What it takes
+## Choose the handoff
+
+`pull`, `convert` and `fetch` accept `--mode production|assemble` (default `production`).
+
+- **production — keep making the film:** the existing reference-oriented import below, unchanged.
+- **assemble — compose the selected cut:** requires an exported revision, positive shot frame durations and selected video for every shot. Imports selected audio and global audio tracks. Does not guess missing selections or run tools during import.
+
+```sh
+vflow-pull pull --project demo --composition episode-001 --revision 6 --mode assemble --out ./vflow-r6/filmkit.yaml
+```
+
+Assembly preserves sequence and declares `durationPolicy: exact`, with hard cuts. Long clips are trimmed and short clips freeze at the last frame; selected audio **replaces** clip audio, otherwise clip audio is kept. Warnings state these policies. Time is converted from source frames to seconds; final timing remains subject to filmkit/ffmpeg time and codec precision and must be checked after build.
+
+Each global audio track becomes a normal builtin ffmpeg node plus an audio timeline track. `trimStartFrame` crops the **source**, while `startFrame` sets the **timeline position**; short audio is padded with silence, never looped. Read `filmkit plan`, review `filmkit storyboard`, explicitly `filmkit run <audio-node>` for each pending crop, then build. No core schema, model runtime, network write or new external dependency is introduced.
+
+Only selected media and global audio sources are downloaded in assembly mode. Reference/candidate metadata remains in the saved bundle, not in final footage. Source shot IDs and audio track semantics remain in annotations; local IDs are deterministic hashes of source IDs, independent of ordering. This is a new-file import, **not incremental sync**: keep local edits in their existing project and import another revision into a new directory rather than using `--force` as a merge.
+
+For the offline route pass the **same mode** to both commands:
+
+```sh
+vflow-pull convert bundle.json --mode assemble --out filmkit.yaml
+vflow-pull fetch bundle.json --mode assemble --dir .
+```
+
+vflow's workbench source tab offers both modes, fixed-revision commands and basic handoff blockers. Its readiness check is not a media/visual or target-tool approval. Generation input packet consumption, upstream diff/merge and remote result submission are not implemented here.
+
+## What production mode takes
 
 | from vflow | in the filmkit project |
 | --- | --- |
@@ -38,7 +64,7 @@ anything else is refused with `field: apiVersion`. Unknown fields are ignored; t
 strictly, with paths (`composition.shots.shot-003.subjects[0]`).
 
 For approved dynamic references the bundle must contain the pinned composition baseline and attributable
-accepted review evidence with all six mandatory checks passed. Duplicate role IDs, keyframe IDs/moments or
+accepted review evidence with all six mandatory checks passed. Duplicate role IDs, keyframe IDs or moment/purpose pairs (same moment with different declared purposes is allowed), or
 undeclared keyframe usages are rejected. Source MIME is opaque: it is retained as a file archive regardless
 of its reported media type, never as a model input. Design changes
 (description, prompts, dependencies, duration, format), subject/variant or scene-version drift are refused;
@@ -48,11 +74,15 @@ approved. See [L0 dynamic-reference workflow](../../docs/blockout.md).
 
 ## Install
 
+filmkit 0.8.0 installs both commands through Homebrew or package bin links. From source:
+
 ```bash
 bun install                                              # in the filmkit repo
-ln -sf "$PWD/tools/vflow/bin/vflow-pull.ts" ~/.local/bin/vflow-pull
+bun link                                                 # filmkit and vflow-pull
 vflow-pull help
 ```
+
+Without installing a link, use `bun tools/vflow/bin/vflow-pull.ts help`.
 
 ## Use
 
@@ -142,11 +172,14 @@ ids, 404), `3` missing dependency (no or rejected credentials — Access answers
 ```bash
 bun test tools/vflow                         # converter fixtures are real vflow exports; stub-server end to end incl. a built video
 VFLOW_DIR=~/github/vflow bash scripts/e2e-vflow.sh
+VFLOW_DIR=~/github/vflow bun scripts/e2e-vflow-handoff.ts
 ```
 
 The script starts vflow's own acceptance server (`scripts/ui-test-server.ts`: real REST routes and domain,
 in-memory, loopback only), pulls a v1 and a v2 project, compares the landed bytes with what vflow serves, builds a
 video, and checks that a failing pull changes nothing. It refuses to run if something already listens on `:4179`.
+
+`e2e-vflow-handoff.ts` uses an isolated ephemeral loopback port, a real strict vflow project and synthetic media: reader pull → source-offset audio node → two-shot build, denied reader write, permission revocation preserving local film/lock, and the same-moment/different-purpose motion contract. `assemble.test.ts` additionally compares decoded crop PCM and exercises failed ffmpeg/download recovery. Rollback needs no migration: remove the opt-in mode/UI; never overwrite a new assembly project using the old importer.
 
 `VFLOW_DIR=~/github/vflow bun scripts/e2e-motion-reference.ts` exercises the real vflow MCP prepare/evidence
 and REST export/content interfaces, then pulls an approved motion video's keyframes, overview and source into
